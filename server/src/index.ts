@@ -31,4 +31,9 @@ console.log( "Debug payload",payload )
 
 function badlyFormatted( a:number,b:number ){ return a + b }
 
+function riskyAccess(user?: User) {
+  const fallback='UNKNOWN'
+  return user!.name || fallback
+}
+
 export { formatSummary, getActiveUserNames, summary, users };
