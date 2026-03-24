@@ -9,7 +9,6 @@
     "format": "prettier --write .",
     "prepare": "cd .. && husky server/.husky",
     "build": "tsc --watch",
-    "dev": "concurrently \"npm run build\" \"nodemon --env-file=.env dist/index.js\"",
     "test": "echo \"Error: no test specified\" && exit 1",
     "start": "node dist/index.js"
   },
@@ -20,8 +19,10 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.0",
+    "@types/pg": "^8.20.0",
     "@typescript-eslint/eslint-plugin": "^8.57.2",
     "@typescript-eslint/parser": "^8.57.2",
+    "concurrently": "^9.2.1",
     "eslint": "^10.1.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
@@ -30,6 +31,7 @@
     "jiti": "^2.6.1",
     "lint-staged": "^16.4.0",
     "prettier": "^3.8.1",
+    "prisma": "^7.5.0",
     "ts-node": "^10.9.2",
     "typescript": "^6.0.2",
     "typescript-eslint": "^8.57.2"
@@ -42,5 +44,12 @@
     "*.{json,md,css,yml,yaml}": [
       "prettier --write"
     ]
+  },
+  "dependencies": {
+    "@prisma/adapter-pg": "^7.5.0",
+    "@prisma/client": "^7.5.0",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "pg": "^8.20.0"
   }
 }
