@@ -25,4 +25,10 @@ function formatSummary(names: string[]): string {
 const activeUserNames = getActiveUserNames(users);
 const summary = formatSummary(activeUserNames);
 
+const unusedVar = 42
+const payload:any={ source:'manual-test', count:3 }
+console.log( "Debug payload",payload )
+
+function badlyFormatted( a:number,b:number ){ return a + b }
+
 export { formatSummary, getActiveUserNames, summary, users };
