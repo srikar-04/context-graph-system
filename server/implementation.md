@@ -54,6 +54,8 @@
 - Corrected the seed script path from `backend/src/scripts/seed.ts` to `server/src/scripts/seed.ts`.
 - Corrected the schema-design note so it references the actual dataset location `server/data`.
 - Expanded the normalization guidance to cover Prisma `Decimal`, JSON time fragments, and composite IDs.
+- Added a frontend execution note after reading the locally vendored `client/.agents/skills/find-skills` and `client/.agents/skills/web-design-guidelines` skill folders.
+- Recorded that the frontend should treat the web design guideline rules as build-time constraints, and that Tailwind is optional if a small shared CSS token system yields a more deliberate, accessible UI.
 
 ## Step 1 - Database Schema Design
 

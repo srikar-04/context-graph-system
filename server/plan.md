@@ -120,7 +120,7 @@ The stack choices here are deliberate and defensible. Every choice optimises for
 
 **HTTP Client: Axios** for making API calls from the frontend to the Express backend.
 
-**Styling: Tailwind CSS.** Utility-first CSS that allows building clean, consistent UI without writing custom CSS files.
+**Styling: Intentional design system first.** Tailwind CSS is acceptable, but not required. A small handcrafted CSS token system is also valid if it produces a more deliberate visual result with less boilerplate. The important constraint is that the frontend should use shared design tokens, responsive layouts, and accessible interaction states instead of ad-hoc styling.
 
 ### Dev Tooling
 
@@ -769,6 +769,21 @@ The prompt achieves reliable, safe behaviour through three mechanisms. First, gi
 ---
 
 ## 11. Step 6 — Frontend Architecture
+
+### Frontend Execution Note After Reviewing Local Skills
+
+The client workspace includes locally vendored skill guidance under `client/.agents/skills`, specifically `find-skills` and `web-design-guidelines`. The first is mainly a discovery workflow and does not change the base implementation plan, but the second introduces durable UI quality constraints that should shape the build itself, not just a later review.
+
+That means the frontend implementation should explicitly preserve:
+
+1. semantic HTML for major regions (`main`, `section`, `aside`, `header`, `form`, `button`);
+2. visible keyboard focus states and keyboard-accessible interactive controls;
+3. form labels, aria labels for icon-only actions, and meaningful loading/error announcements;
+4. reduced-motion handling for any decorative animation;
+5. overflow-safe text/layout behavior for long node labels, SQL output, and chat responses;
+6. deliberate copy rules such as using the ellipsis character (`…`) instead of three periods where applicable.
+
+Because the app is being created from an empty `client/` workspace rather than extended from an existing design system, the visual direction should also be intentionally composed: define shared CSS variables/tokens, avoid a default template look, and make the graph + chat relationship feel like one product surface rather than two unrelated panels.
 
 ### Layout
 
