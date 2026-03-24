@@ -286,3 +286,92 @@
 ### Result at the end of this step
 
 - The server is no longer a stub. It now exposes a working health endpoint and graph API on top of the seeded database and cached graph engine.
+
+## Step 5 - LLM Query Interface
+
+### Important plan improvement applied before implementation
+
+- The Gemini transport strategy was improved twice during implementation:
+  first away from deprecated `@google/generative-ai`,
+  and then, based on your direction, to Gemini's OpenAI-compatible API using the standard `openai` client.
+- I updated [`plan.md`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\plan.md) so it now reflects the OpenAI-compatible Gemini API approach instead of the Gemini-native SDK path.
+
+### What changed
+
+- Added [`src/constants/schema.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\constants\schema.ts) to load and cache the latest Prisma migration SQL as the schema prompt source for the model.
+- Added [`src/services/genai.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\services\genai.ts) to wrap Gemini's OpenAI-compatible API client and fail cleanly when `GEMINI_API_KEY` is missing.
+- [`src/services/genai.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\services\genai.ts) now uses:
+  the `openai` package,
+  Gemini's OpenAI-compatible base URL,
+  `chat.completions.create(...)`,
+  `response_format: { type: "json_object" }`.
+- Added [`src/services/queryEngine.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\services\queryEngine.ts) to implement:
+  prompt construction,
+  model-response parsing,
+  SQL safety validation,
+  SQL execution,
+  answer grounding,
+  graph node reference extraction.
+- Added [`src/schemas/query.schema.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\schemas\query.schema.ts) for chat request validation.
+- Added [`src/routes/query.routes.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\routes\query.routes.ts) and mounted it in [`src/app.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\app.ts).
+- Added [`src/middleware/validator.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\middleware\validator.ts), [`src/middleware/rateLimiter.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\middleware\rateLimiter.ts), and [`src/utils/apiError.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\utils\apiError.ts).
+- Expanded [`server/.env.sample`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server.env.sample) with the environment variables the query layer now needs.
+- Added support for `GEMINI_OPENAI_BASE_URL` in the environment template, with the Gemini OpenAI-compatible endpoint as the default.
+
+### Query API surface implemented
+
+- `POST /api/query/session`
+- `GET /api/query/history/:sessionId`
+- `POST /api/query/chat`
+
+### Guardrails implemented
+
+- Request validation via `zod`.
+- In-memory rate limiting on `POST /api/query/chat` with a 20-requests-per-minute window.
+- Model output parsing that accepts only:
+  `{"sql":"...","explanation":"..."}` or `{"error":"out_of_scope"}`.
+- SQL validation that rejects:
+  non-`SELECT` statements,
+  semicolons / multi-statement output,
+  forbidden mutation keywords,
+  references to tables outside the allowed schema.
+- Grounding behavior that returns:
+  a fixed out-of-scope response for off-domain questions,
+  a fixed no-data response when the SQL result is empty.
+- Node-reference extraction that maps SQL result values back to the graph's typed node IDs using cached `businessKey` metadata.
+
+## Step 7 - Chat History and Session Management
+
+### What changed
+
+- Added [`src/services/chatHistory.ts`](c:\Users\srikar\OneDrive\desktop\code\context-graph-system\server\src\services\chatHistory.ts) to manage session creation, session existence checks, full history fetches, recent-history fetches, and message persistence.
+- The query engine now loads the recent conversation history and includes it in the prompt text sent to Gemini.
+- Session-backed query routes are now fully connected to the existing `ChatSession` and `ChatMessage` tables.
+
+### Verification completed
+
+- `npx tsc --noEmit` succeeded after the query/session layer was added.
+- `npm run build` succeeded after the query/session layer was added.
+- Ran database-backed runtime checks that verified:
+  session creation works,
+  empty history returns correctly,
+  the query engine fails fast with a structured `503 GEMINI_API_KEY_MISSING` error when no API key is configured,
+  missing-key failures do not mutate chat history.
+- After you added a real Gemini API key, ran a real end-to-end query successfully through Gemini's OpenAI-compatible API:
+  question: billing documents for customer `320000083`
+  generated SQL: `SELECT "billingDocument" FROM "BillingDocumentHeader" WHERE "soldToParty" = '320000083'`
+  query execution time: about `520ms`
+  node references returned: `50`
+- Ran a live Express API smoke test and verified:
+  `GET /api/health`
+  `POST /api/query/session`
+  `POST /api/query/chat`
+  `GET /api/query/history/:sessionId`
+  all worked together against the real database and Gemini API.
+- Ran an off-domain guardrail check with:
+  `What is the capital of France?`
+  and confirmed the planned out-of-scope response was returned with `sql: null`.
+
+### Result at the end of these steps
+
+- The backend now includes session creation, history retrieval, validated chat requests, guardrailed SQL generation/execution plumbing, and a working Gemini integration through the OpenAI-compatible API path.

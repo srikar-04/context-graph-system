@@ -4,6 +4,7 @@ import { errorHandler } from "./middleware/errorHandler.js";
 import { requestLogger } from "./middleware/logger.js";
 import { graphRouter } from "./routes/graph.routes.js";
 import { healthRouter } from "./routes/health.routes.js";
+import { queryRouter } from "./routes/query.routes.js";
 
 const frontendOrigin = process.env.FRONTEND_ORIGIN ?? "http://localhost:5173";
 
@@ -26,6 +27,7 @@ export const createApp = () => {
 
   app.use("/api/health", healthRouter);
   app.use("/api/graph", graphRouter);
+  app.use("/api/query", queryRouter);
 
   app.use(errorHandler);
 

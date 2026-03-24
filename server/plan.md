@@ -110,7 +110,7 @@ The stack choices here are deliberate and defensible. Every choice optimises for
 
 **Database: PostgreSQL.** A robust, production-grade relational database. The data here is inherently relational (foreign keys, joins, constraints), and PostgreSQL handles this with speed and reliability. SQLite can be used as a local development alternative with zero configuration change in the Prisma schema (just change `provider = "sqlite"`).
 
-**LLM: Google Gemini 1.5 Flash via `@google/generative-ai` SDK.** Chosen because: it has a 1 million token context window (important for passing the full schema in the system prompt), it is highly capable at SQL generation, the free tier allows 15 requests per minute and 1 million tokens per day (more than sufficient for a demo), and the Node.js SDK is clean and well-documented. No money needs to be spent.
+**LLM: Google Gemini Flash via the OpenAI-compatible Gemini API.** The backend can use the standard `openai` TypeScript client with Gemini's OpenAI-compatible base URL. This keeps the code easy to follow for teams already familiar with OpenAI-style chat completions while still using Gemini models.
 
 ### Frontend
 
@@ -897,11 +897,20 @@ DATABASE_URL="postgresql://user:password@localhost:5432/sap_o2c"
 # Google Gemini API key (get from https://ai.google.dev)
 GEMINI_API_KEY="your_gemini_api_key_here"
 
+# Optional explicit Gemini model override
+GEMINI_MODEL="gemini-2.5-flash"
+
+# Optional Gemini OpenAI-compatible base URL override
+GEMINI_OPENAI_BASE_URL="https://generativelanguage.googleapis.com/v1beta/openai/"
+
 # Server port
 PORT=3000
 
 # Path to the JSONL dataset root folder
 DATA_PATH="./data"
+
+# Frontend origin for CORS
+FRONTEND_ORIGIN="http://localhost:5173"
 
 # Environment flag — disables the /api/ingest endpoint in production
 NODE_ENV="development"
