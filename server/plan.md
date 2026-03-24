@@ -184,6 +184,15 @@ The system is divided into two independent applications that communicate over HT
 
 The project is built in seven sequential steps. Each step builds on the previous one and should be completed in order.
 
+### Execution Note After Reviewing the Real Dataset
+
+After profiling the JSONL files in `server/data`, a few implementation details need to be made explicit before coding begins:
+
+1. The executable Prisma ingestion script cannot be completed before the Prisma schema exists. In practice, the build order is: profile the dataset -> finalise the schema and keys -> run migrations/generate client -> implement the ingestion script against those generated models.
+2. Several document relationships are not stored on header tables directly. For example, `outbound_delivery_headers` does not contain `salesOrder`, and `billing_document_headers` does not contain `salesOrder` or `deliveryDocument`. Those links must be derived through item/reference fields.
+3. SAP item identifiers are not formatted consistently across folders. For example, delivery item references use values like `000010` while sales and billing items may use `10`. The ingestion layer should therefore persist both the raw value and a canonical normalised item key (trimmed leading zeros) for reliable joins and graph edges.
+4. The draft schema shown later in this document is a starting point, not the final source of truth. The actual Prisma schema must follow the real field names and join paths found in `server/data`.
+
 **Step 1 — Data Ingestion Pipeline:** Read the raw `.jsonl` files from disk, parse each line, normalize the data, and write it into PostgreSQL via Prisma.
 
 **Step 2 — Database Schema Design:** Design the Prisma schema (`schema.prisma`) that models all 19 entity types with correct fields, types, relationships (foreign keys), and constraints.
@@ -208,7 +217,7 @@ This step transforms the raw JSONL files on disk into structured rows inside Pos
 
 ### Where It Lives
 
-`backend/src/scripts/seed.ts` — this is a standalone TypeScript script, not part of the Express server. It is run once (or whenever you need to refresh the data) using `npx ts-node src/scripts/seed.ts`.
+`server/src/scripts/seed.ts` — this is a standalone TypeScript script, not part of the Express server. It is run once (or whenever you need to refresh the data) using `npx ts-node src/scripts/seed.ts`.
 
 ### How the JSONL Reader Works
 
@@ -246,9 +255,13 @@ async function ingestFolder(folderPath: string, entityName: string) {
 
 Using `upsert` instead of `create` makes the script **idempotent** — running it multiple times produces the same result. If you run the seed script twice, you won't get duplicate records; you'll just overwrite the existing ones. This is a production-quality practice because it means you can safely re-run the ingestion if something goes wrong halfway through.
 
+### Performance Adjustment for Real Bulk Loads
+
+After implementing and testing the loader against the real dataset and remote PostgreSQL, the purely row-by-row `upsert` approach proved too slow for large folders such as `product_storage_locations`. The practical implementation should therefore batch writes with `createMany({ skipDuplicates: true })` or use database-native `ON CONFLICT` SQL for the heavy raw-data tables. This still preserves restart safety for the static demo dataset while dramatically reducing network round-trips. Reserve per-row `upsert` for tables that truly need update semantics on reruns.
+
 ### Normalisation Rules
 
-Before writing a record to the database, you apply normalisation. String fields that represent numbers (SAP often stores `"897.03"` as a string) are cast to `parseFloat()`. Date fields (which come as ISO strings like `"2025-04-02T00:00:00.000Z"`) are wrapped in `new Date()` to become proper DateTime objects in PostgreSQL. Fields that are `null` or empty strings `""` are stored as `null` in the database. Composite primary keys (where the unique identifier is a combination of two or more fields, like `accountingDocument + accountingDocumentItem`) are concatenated into a single string ID with a separator like `"9400000220_1"`.
+Before writing a record to the database, you apply normalisation. String fields that represent numbers (SAP often stores `"897.03"` as a string) are cast to `parseFloat()` or Prisma `Decimal` input values. Date fields (which come as ISO strings like `"2025-04-02T00:00:00.000Z"`) are wrapped in `new Date()` to become proper DateTime objects in PostgreSQL. Fields that are `null` or empty strings `""` are stored as `null` in the database. Time fragments that arrive as nested objects such as `{ "hours": 11, "minutes": 31, "seconds": 13 }` should be preserved as JSON columns. SAP line-item identifiers should also get a canonical companion field with leading zeros trimmed (for example `000010` -> `10`) so cross-table joins remain reliable. Composite primary keys (where the unique identifier is a combination of two or more fields, like `accountingDocument + accountingDocumentItem`) should use Prisma composite IDs or composite unique constraints rather than inventing fragile ad-hoc string keys unless a synthetic key is genuinely needed.
 
 ### Ingestion Order Matters
 
@@ -266,7 +279,7 @@ The `schema.prisma` file is the central definition of your database. Each `model
 
 ### Key Models
 
-Below is the complete schema design for all core entities made for your better understanding, this may not be the final schema. Field names are kept exactly as they appear in the JSONL files (camelCase) for traceability. You have complete free will to change this schema accordingly after completely reading and reasoning all the files in `sap-o2c-data` folder which is located in the root of the repo
+Below is the complete schema design for all core entities made for your better understanding, this may not be the final schema. Field names are kept exactly as they appear in the JSONL files (camelCase) for traceability. You have complete free will to change this schema accordingly after completely reading and reasoning all the files in `server/data`.
 
 ```prisma
 // The identity/primary key strategy:
@@ -538,12 +551,14 @@ Every node has four fields that the frontend uses:
 
 ```typescript
 interface GraphNode {
-  id: string; // Unique identifier — the SAP document number
+  id: string; // Globally unique graph identifier, e.g. "SalesOrder:740506"
   type: string; // Entity type — "SalesOrder", "Customer", "Delivery", etc.
   label: string; // Human-readable display label shown on hover
   data: Record<string, any>; // All fields from the DB row — shown in the detail panel
 }
 ```
+
+The raw SAP business key should still be preserved inside `data` (for example `data.businessKey = "740506"`). Using the raw number alone as the graph node `id` is risky because different entity types can collide on the same string value.
 
 ### Edge Structure
 

@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,498 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+model BusinessPartner {
+  businessPartner            String   @id
+  customer                   String?
+  businessPartnerCategory    String?
+  businessPartnerFullName    String?
+  businessPartnerGrouping    String?
+  businessPartnerName        String?
+  correspondenceLanguage     String?
+  createdByUser              String?
+  creationDate               DateTime?
+  creationTime               Json?
+  firstName                  String?
+  formOfAddress              String?
+  industry                   String?
+  lastChangeDate             DateTime?
+  lastName                   String?
+  organizationBpName1        String?
+  organizationBpName2        String?
+  businessPartnerIsBlocked   Boolean?
+  isMarkedForArchiving       Boolean?
+
+  addresses                  BusinessPartnerAddress[]
+  customerCompanyAssignments CustomerCompanyAssignment[]
+  customerSalesAssignments   CustomerSalesAreaAssignment[]
+  salesOrdersSoldToParty     SalesOrderHeader[]                 @relation("SalesOrderSoldToParty")
+  billingDocumentsSoldToParty BillingDocumentHeader[]           @relation("BillingDocumentSoldToParty")
+  journalEntriesCustomer     JournalEntryAccountsReceivable[]   @relation("JournalEntryCustomer")
+  paymentsCustomer           PaymentAccountsReceivable[]        @relation("PaymentCustomer")
+
+  @@index([customer])
+}
+
+model BusinessPartnerAddress {
+  businessPartner         String
+  addressId               String
+  validityStartDate       DateTime?
+  validityEndDate         DateTime?
+  addressUuid             String?
+  addressTimeZone         String?
+  cityName                String?
+  country                 String?
+  poBox                   String?
+  poBoxDeviatingCityName  String?
+  poBoxDeviatingCountry   String?
+  poBoxDeviatingRegion    String?
+  poBoxIsWithoutNumber    Boolean?
+  poBoxLobbyName          String?
+  poBoxPostalCode         String?
+  postalCode              String?
+  region                  String?
+  streetName              String?
+  taxJurisdiction         String?
+  transportZone           String?
+
+  partner                 BusinessPartner @relation(fields: [businessPartner], references: [businessPartner])
+
+  @@id([businessPartner, addressId])
+  @@index([businessPartner])
+}
+
+model CustomerCompanyAssignment {
+  customer                       String
+  companyCode                    String
+  accountingClerk                String?
+  accountingClerkFaxNumber       String?
+  accountingClerkInternetAddress String?
+  accountingClerkPhoneNumber     String?
+  alternativePayerAccount        String?
+  paymentBlockingReason          String?
+  paymentMethodsList             String?
+  paymentTerms                   String?
+  reconciliationAccount          String?
+  deletionIndicator              Boolean?
+  customerAccountGroup           String?
+
+  businessPartnerRecord          BusinessPartner @relation(fields: [customer], references: [businessPartner])
+
+  @@id([customer, companyCode])
+  @@index([customer])
+  @@index([companyCode])
+}
+
+model CustomerSalesAreaAssignment {
+  customer                      String
+  salesOrganization             String
+  distributionChannel           String
+  division                      String
+  billingIsBlockedForCustomer   String?
+  completeDeliveryIsDefined     Boolean?
+  creditControlArea             String?
+  currency                      String?
+  customerPaymentTerms          String?
+  deliveryPriority              String?
+  incotermsClassification       String?
+  incotermsLocation1            String?
+  salesGroup                    String?
+  salesOffice                   String?
+  shippingCondition             String?
+  slsUnlmtdOvrdelivIsAllwd      Boolean?
+  supplyingPlant                String?
+  salesDistrict                 String?
+  exchangeRateType              String?
+
+  businessPartnerRecord         BusinessPartner @relation(fields: [customer], references: [businessPartner])
+
+  @@id([customer, salesOrganization, distributionChannel, division])
+  @@index([customer])
+  @@index([salesOrganization, distributionChannel, division])
+}
+
+model Plant {
+  plant                    String   @id
+  plantName                String?
+  valuationArea            String?
+  plantCustomer            String?
+  plantSupplier            String?
+  factoryCalendar          String?
+  defaultPurchasingOrganization String?
+  salesOrganization        String?
+  addressId                String?
+  plantCategory            String?
+  distributionChannel      String?
+  division                 String?
+  language                 String?
+  isMarkedForArchiving     Boolean?
+
+  productPlants            ProductPlant[]
+  productStorageLocations  ProductStorageLocation[]
+  salesOrderItems          SalesOrderItem[]              @relation("SalesOrderItemPlant")
+  outboundDeliveryItems    OutboundDeliveryItem[]        @relation("OutboundDeliveryItemPlant")
+}
+
+model Product {
+  product                  String   @id
+  productType              String?
+  crossPlantStatus         String?
+  crossPlantStatusValidityDate DateTime?
+  creationDate             DateTime?
+  createdByUser            String?
+  lastChangeDate           DateTime?
+  lastChangeDateTime       DateTime?
+  isMarkedForDeletion      Boolean?
+  productOldId             String?
+  grossWeight              Decimal?
+  weightUnit               String?
+  netWeight                Decimal?
+  productGroup             String?
+  baseUnit                 String?
+  division                 String?
+  industrySector           String?
+
+  descriptions             ProductDescription[]
+  productPlants            ProductPlant[]
+  productStorageLocations  ProductStorageLocation[]
+  salesOrderItems          SalesOrderItem[]              @relation("SalesOrderItemProduct")
+  billingDocumentItems     BillingDocumentItem[]         @relation("BillingDocumentItemProduct")
+}
+
+model ProductDescription {
+  product             String
+  language            String
+  productDescription  String?
+
+  productRecord       Product @relation(fields: [product], references: [product])
+
+  @@id([product, language])
+  @@index([product])
+}
+
+model ProductPlant {
+  product                 String
+  plant                   String
+  countryOfOrigin         String?
+  regionOfOrigin          String?
+  productionInvtryManagedLoc String?
+  availabilityCheckType   String?
+  fiscalYearVariant       String?
+  profitCenter            String?
+  mrpType                 String?
+
+  productRecord           Product @relation(fields: [product], references: [product])
+  plantRecord             Plant   @relation(fields: [plant], references: [plant])
+
+  @@id([product, plant])
+  @@index([product])
+  @@index([plant])
+}
+
+model ProductStorageLocation {
+  product                          String
+  plant                            String
+  storageLocation                  String
+  physicalInventoryBlockInd        String?
+  dateOfLastPostedCntUnRstrcdStk   DateTime?
+
+  productRecord                    Product @relation(fields: [product], references: [product])
+  plantRecord                      Plant   @relation(fields: [plant], references: [plant])
+
+  @@id([product, plant, storageLocation])
+  @@index([product])
+  @@index([plant])
+  @@index([product, plant])
+}
+
+model SalesOrderHeader {
+  salesOrder                    String   @id
+  salesOrderType                String?
+  salesOrganization             String?
+  distributionChannel           String?
+  organizationDivision          String?
+  salesGroup                    String?
+  salesOffice                   String?
+  soldToParty                   String?
+  creationDate                  DateTime?
+  createdByUser                 String?
+  lastChangeDateTime            DateTime?
+  totalNetAmount                Decimal?
+  overallDeliveryStatus         String?
+  overallOrdReltdBillgStatus    String?
+  overallSdDocReferenceStatus   String?
+  transactionCurrency           String?
+  pricingDate                   DateTime?
+  requestedDeliveryDate         DateTime?
+  headerBillingBlockReason      String?
+  deliveryBlockReason           String?
+  incotermsClassification       String?
+  incotermsLocation1            String?
+  customerPaymentTerms          String?
+  totalCreditCheckStatus        String?
+
+  soldToPartyPartner            BusinessPartner?             @relation("SalesOrderSoldToParty", fields: [soldToParty], references: [businessPartner])
+  items                         SalesOrderItem[]
+  outboundDeliveryItems         OutboundDeliveryItem[]       @relation("DeliveryItemSalesOrderHeader")
+  payments                      PaymentAccountsReceivable[]  @relation("PaymentSalesDocument")
+
+  @@index([soldToParty])
+  @@index([salesOrganization, distributionChannel, organizationDivision])
+}
+
+model SalesOrderItem {
+  salesOrder                    String
+  salesOrderItem                String
+  salesOrderItemNormalized      String
+  salesOrderItemCategory        String?
+  material                      String?
+  requestedQuantity             Decimal?
+  requestedQuantityUnit         String?
+  transactionCurrency           String?
+  netAmount                     Decimal?
+  materialGroup                 String?
+  productionPlant               String?
+  storageLocation               String?
+  salesDocumentRjcnReason       String?
+  itemBillingBlockReason        String?
+
+  salesOrderHeader              SalesOrderHeader       @relation(fields: [salesOrder], references: [salesOrder])
+  productRecord                 Product?               @relation("SalesOrderItemProduct", fields: [material], references: [product])
+  plantRecord                   Plant?                 @relation("SalesOrderItemPlant", fields: [productionPlant], references: [plant])
+  scheduleLines                 SalesOrderScheduleLine[]
+  outboundDeliveryItems         OutboundDeliveryItem[] @relation("DeliveryItemSalesOrderItem")
+
+  @@id([salesOrder, salesOrderItem])
+  @@unique([salesOrder, salesOrderItemNormalized])
+  @@index([material])
+  @@index([productionPlant])
+  @@index([salesOrderItemNormalized])
+}
+
+model SalesOrderScheduleLine {
+  salesOrder                    String
+  salesOrderItem                String
+  scheduleLine                  String
+  confirmedDeliveryDate         DateTime?
+  orderQuantityUnit             String?
+  confdOrderQtyByMatlAvailCheck Decimal?
+
+  salesOrderItemRecord          SalesOrderItem @relation(fields: [salesOrder, salesOrderItem], references: [salesOrder, salesOrderItem])
+
+  @@id([salesOrder, salesOrderItem, scheduleLine])
+  @@index([salesOrder, salesOrderItem])
+}
+
+model OutboundDeliveryHeader {
+  deliveryDocument              String   @id
+  actualGoodsMovementDate       DateTime?
+  actualGoodsMovementTime       Json?
+  creationDate                  DateTime?
+  creationTime                  Json?
+  deliveryBlockReason           String?
+  hdrGeneralIncompletionStatus  String?
+  headerBillingBlockReason      String?
+  lastChangeDate                DateTime?
+  overallGoodsMovementStatus    String?
+  overallPickingStatus          String?
+  overallProofOfDeliveryStatus  String?
+  shippingPoint                 String?
+
+  items                         OutboundDeliveryItem[]
+  billingDocumentItems          BillingDocumentItem[] @relation("BillingItemDeliveryHeader")
+}
+
+model OutboundDeliveryItem {
+  deliveryDocument               String
+  deliveryDocumentItem           String
+  deliveryDocumentItemNormalized String
+  actualDeliveryQuantity         Decimal?
+  batch                          String?
+  deliveryQuantityUnit           String?
+  itemBillingBlockReason         String?
+  lastChangeDate                 DateTime?
+  plant                          String?
+  referenceSdDocument            String?
+  referenceSdDocumentItem        String?
+  referenceSdDocumentItemNormalized String?
+  storageLocation                String?
+
+  deliveryHeader                 OutboundDeliveryHeader @relation(fields: [deliveryDocument], references: [deliveryDocument])
+  plantRecord                    Plant?                 @relation("OutboundDeliveryItemPlant", fields: [plant], references: [plant])
+  salesOrderHeader               SalesOrderHeader?      @relation("DeliveryItemSalesOrderHeader", fields: [referenceSdDocument], references: [salesOrder])
+  salesOrderItemRecord           SalesOrderItem?        @relation("DeliveryItemSalesOrderItem", fields: [referenceSdDocument, referenceSdDocumentItemNormalized], references: [salesOrder, salesOrderItemNormalized])
+  billingDocumentItems           BillingDocumentItem[]  @relation("BillingItemDeliveryItem")
+
+  @@id([deliveryDocument, deliveryDocumentItem])
+  @@unique([deliveryDocument, deliveryDocumentItemNormalized])
+  @@index([plant])
+  @@index([referenceSdDocument])
+  @@index([referenceSdDocument, referenceSdDocumentItemNormalized])
+}
+
+model BillingDocumentHeader {
+  billingDocument               String   @id
+  billingDocumentType           String?
+  creationDate                  DateTime?
+  creationTime                  Json?
+  lastChangeDateTime            DateTime?
+  billingDocumentDate           DateTime?
+  billingDocumentIsCancelled    Boolean?
+  cancelledBillingDocument      String?
+  totalNetAmount                Decimal?
+  transactionCurrency           String?
+  companyCode                   String?
+  fiscalYear                    String?
+  accountingDocument            String?
+  soldToParty                   String?
+
+  soldToPartyPartner            BusinessPartner?               @relation("BillingDocumentSoldToParty", fields: [soldToParty], references: [businessPartner])
+  items                         BillingDocumentItem[]
+  cancellationSnapshot          BillingDocumentCancellation?
+  journalEntries                JournalEntryAccountsReceivable[] @relation("JournalEntryBillingDocument")
+  paymentsByInvoiceReference    PaymentAccountsReceivable[]    @relation("PaymentInvoiceReference")
+
+  @@index([soldToParty])
+  @@index([accountingDocument])
+  @@index([companyCode, fiscalYear])
+}
+
+model BillingDocumentCancellation {
+  billingDocument               String   @id
+  billingDocumentType           String?
+  creationDate                  DateTime?
+  creationTime                  Json?
+  lastChangeDateTime            DateTime?
+  billingDocumentDate           DateTime?
+  billingDocumentIsCancelled    Boolean?
+  cancelledBillingDocument      String?
+  totalNetAmount                Decimal?
+  transactionCurrency           String?
+  companyCode                   String?
+  fiscalYear                    String?
+  accountingDocument            String?
+  soldToParty                   String?
+
+  billingDocumentHeader         BillingDocumentHeader @relation(fields: [billingDocument], references: [billingDocument])
+
+  @@index([accountingDocument])
+  @@index([soldToParty])
+}
+
+model BillingDocumentItem {
+  billingDocument               String
+  billingDocumentItem           String
+  billingDocumentItemNormalized String
+  material                      String?
+  billingQuantity               Decimal?
+  billingQuantityUnit           String?
+  netAmount                     Decimal?
+  transactionCurrency           String?
+  referenceSdDocument           String?
+  referenceSdDocumentItem       String?
+  referenceSdDocumentItemNormalized String?
+
+  billingDocumentHeader         BillingDocumentHeader  @relation(fields: [billingDocument], references: [billingDocument])
+  productRecord                 Product?               @relation("BillingDocumentItemProduct", fields: [material], references: [product])
+  deliveryHeader                OutboundDeliveryHeader? @relation("BillingItemDeliveryHeader", fields: [referenceSdDocument], references: [deliveryDocument])
+  deliveryItemRecord            OutboundDeliveryItem?  @relation("BillingItemDeliveryItem", fields: [referenceSdDocument, referenceSdDocumentItemNormalized], references: [deliveryDocument, deliveryDocumentItemNormalized])
+
+  @@id([billingDocument, billingDocumentItem])
+  @@index([material])
+  @@index([referenceSdDocument])
+  @@index([referenceSdDocument, referenceSdDocumentItemNormalized])
+}
+
+model JournalEntryAccountsReceivable {
+  companyCode                   String
+  fiscalYear                    String
+  accountingDocument            String
+  accountingDocumentItem        String
+  glAccount                     String?
+  referenceDocument             String?
+  costCenter                    String?
+  profitCenter                  String?
+  transactionCurrency           String?
+  amountInTransactionCurrency   Decimal?
+  companyCodeCurrency           String?
+  amountInCompanyCodeCurrency   Decimal?
+  postingDate                   DateTime?
+  documentDate                  DateTime?
+  accountingDocumentType        String?
+  assignmentReference           String?
+  lastChangeDateTime            DateTime?
+  customer                      String?
+  financialAccountType          String?
+  clearingDate                  DateTime?
+  clearingAccountingDocument    String?
+  clearingDocFiscalYear         String?
+
+  billingDocumentHeader         BillingDocumentHeader?         @relation("JournalEntryBillingDocument", fields: [referenceDocument], references: [billingDocument])
+  customerPartner               BusinessPartner?              @relation("JournalEntryCustomer", fields: [customer], references: [businessPartner])
+  paymentRecord                 PaymentAccountsReceivable?
+
+  @@id([companyCode, fiscalYear, accountingDocument, accountingDocumentItem])
+  @@index([referenceDocument])
+  @@index([customer])
+  @@index([clearingAccountingDocument])
+}
+
+model PaymentAccountsReceivable {
+  companyCode                   String
+  fiscalYear                    String
+  accountingDocument            String
+  accountingDocumentItem        String
+  clearingDate                  DateTime?
+  clearingAccountingDocument    String?
+  clearingDocFiscalYear         String?
+  amountInTransactionCurrency   Decimal?
+  transactionCurrency           String?
+  amountInCompanyCodeCurrency   Decimal?
+  companyCodeCurrency           String?
+  customer                      String?
+  invoiceReference              String?
+  invoiceReferenceFiscalYear    String?
+  salesDocument                 String?
+  salesDocumentItem             String?
+  salesDocumentItemNormalized   String?
+  postingDate                   DateTime?
+  documentDate                  DateTime?
+  assignmentReference           String?
+  glAccount                     String?
+  financialAccountType          String?
+  profitCenter                  String?
+  costCenter                    String?
+
+  journalEntry                  JournalEntryAccountsReceivable @relation(fields: [companyCode, fiscalYear, accountingDocument, accountingDocumentItem], references: [companyCode, fiscalYear, accountingDocument, accountingDocumentItem])
+  customerPartner               BusinessPartner?              @relation("PaymentCustomer", fields: [customer], references: [businessPartner])
+  invoiceBillingDocument        BillingDocumentHeader?        @relation("PaymentInvoiceReference", fields: [invoiceReference], references: [billingDocument])
+  salesOrderHeader              SalesOrderHeader?             @relation("PaymentSalesDocument", fields: [salesDocument], references: [salesOrder])
+
+  @@id([companyCode, fiscalYear, accountingDocument, accountingDocumentItem])
+  @@index([customer])
+  @@index([invoiceReference])
+  @@index([salesDocument])
+  @@index([clearingAccountingDocument])
+}
+
+model ChatSession {
+  id          String      @id @default(cuid())
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+  messages    ChatMessage[]
+}
+
+model ChatMessage {
+  id           String      @id @default(cuid())
+  sessionId    String
+  role         String
+  content      String
+  generatedSql String?
+  createdAt    DateTime    @default(now())
+
+  session      ChatSession @relation(fields: [sessionId], references: [id])
+
+  @@index([sessionId, createdAt])
 }
