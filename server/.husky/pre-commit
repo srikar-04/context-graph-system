@@ -1,1 +1,2 @@
-cd server && npx lint-staged
+#!/usr/bin/env sh
+npx --prefix server lint-staged
