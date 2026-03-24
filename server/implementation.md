@@ -377,3 +377,100 @@
 ### Result at the end of these steps
 
 - The backend now includes session creation, history retrieval, validated chat requests, guardrailed SQL generation/execution plumbing, and a working Gemini integration through the OpenAI-compatible API path.
+
+## Step 6 - Frontend Architecture
+
+### What I read and folded into the plan before building
+
+- Read the locally vendored skill folders at:
+  `client/.agents/skills/find-skills/SKILL.md` and
+  `client/.agents/skills/web-design-guidelines/SKILL.md`.
+- `find-skills` was useful as discovery context only, so it did not materially change the implementation plan.
+- `web-design-guidelines` did change the durable frontend constraints, so I updated `plan.md` to record:
+  semantic HTML expectations,
+  visible focus treatment,
+  reduced-motion handling,
+  long-content safety,
+  and the preference for a shared CSS token system over ad-hoc styling.
+- I also fetched the latest published guideline file from the referenced GitHub source and used it as a quick review checklist while polishing the client.
+
+### What changed
+
+- Bootstrapped a real React + TypeScript + Vite frontend in `client/`.
+- Added the client package/tooling files:
+  `client/.gitignore`,
+  `client/package.json`,
+  `client/tsconfig.json`,
+  `client/tsconfig.app.json`,
+  `client/tsconfig.node.json`,
+  `client/vite.config.ts`,
+  `client/index.html`.
+- Added a documented frontend environment template:
+  `client/.env.sample`
+  with `VITE_API_URL`.
+- Added the full app shell and UI implementation:
+  `client/src/main.tsx`,
+  `client/src/App.tsx`,
+  `client/src/index.css`.
+- Added typed frontend contracts and API helpers:
+  `client/src/types/index.ts`,
+  `client/src/api/client.ts`.
+- Added the data/state hooks:
+  `client/src/hooks/useGraph.ts`,
+  `client/src/hooks/useChat.ts`.
+- Added the component layer:
+  `client/src/components/GraphPanel.tsx`,
+  `client/src/components/ChatPanel.tsx`,
+  `client/src/components/NodeDetailDrawer.tsx`,
+  `client/src/components/MessageBubble.tsx`.
+
+### Frontend behavior implemented
+
+- The app now renders the planned split experience:
+  graph on the left,
+  grounded chat on the right,
+  stacked responsively on narrower screens.
+- The graph panel loads `GET /api/graph`, adapts the backend `{ nodes, edges }` contract into the `react-force-graph-2d` `{ nodes, links }` shape, and renders:
+  typed node colors,
+  hover labels,
+  highlighted answer nodes,
+  a node detail drawer powered by `GET /api/graph/node/:id`.
+- The chat panel:
+  creates or restores a backend chat session,
+  hydrates chat history from `GET /api/query/history/:sessionId`,
+  sends new questions to `POST /api/query/chat`,
+  shows generated SQL and execution time on assistant replies,
+  and updates graph highlights from `nodesReferenced`.
+- Added a `New Session` action that clears the local UI state and provisions a fresh backend session.
+
+### Design and accessibility decisions
+
+- Used a custom CSS token system instead of Tailwind so the UI could have a more deliberate visual language from the start:
+  layered atmospheric background,
+  editorial serif headline,
+  mono SQL surfaces,
+  glass-like data panels.
+- Added accessibility and guideline-driven polish:
+  skip link,
+  semantic `main` / `section` / `aside` / `header` / `form`,
+  visible `:focus-visible` styles,
+  `aria-live` regions for async updates,
+  `prefers-reduced-motion` handling,
+  long-text overflow protection,
+  tabular numerals for counts,
+  `autocomplete="off"` and meaningful `name` on the chat input,
+  and `color-scheme: dark` theming support.
+
+### Verification completed
+
+- Installed the frontend dependency set successfully with:
+  `npm install`
+- Fixed the initial graph-library integration mismatch where `react-force-graph-2d` expected `links` rather than the backend's `edges`.
+- Tightened the client build script from `tsc -b && vite build` to `tsc --noEmit -p tsconfig.app.json && vite build` so routine builds do not emit TypeScript artifacts into the source tree.
+- Built the client successfully with:
+  `npm run build`
+- The final production build completed and emitted the Vite `dist/` bundle.
+
+### Known limitation after this step
+
+- I did not perform a real browser smoke test inside this terminal session, so the client is build-verified but not visually click-tested in a browser window from here.
