@@ -163,7 +163,7 @@ textarea:focus-visible {
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
   box-shadow: var(--shadow-sm);
-  overflow: visible;
+  overflow: hidden;
 }
 
 .graph-shell {
@@ -281,6 +281,7 @@ textarea:focus-visible {
   flex: 1 1 100%;
   width: 100%;
   justify-content: space-between;
+  overflow: hidden;
 }
 
 .chat-shell__sessions {
@@ -288,6 +289,7 @@ textarea:focus-visible {
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
+  max-width: 100%;
   overflow-x: auto;
   padding-bottom: 2px;
   padding-right: 2px;
@@ -313,7 +315,7 @@ textarea:focus-visible {
 .graph-surface {
   position: relative;
   min-height: 0;
-  overflow: hidden;
+  overflow: clip;
   border-top: 1px solid #f5f7fb;
   border-radius: 0 0 var(--radius-xl) var(--radius-xl);
   background:
@@ -323,6 +325,8 @@ textarea:focus-visible {
 
 .graph-surface canvas {
   display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
 .empty-state {
@@ -366,6 +370,11 @@ textarea:focus-visible {
   background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
 }
 
+.chat-feed > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
 .chat-feed__placeholder {
   padding: 12px 2px;
   color: var(--text-muted);
@@ -375,6 +384,8 @@ textarea:focus-visible {
 .message-bubble {
   display: grid;
   gap: 10px;
+  min-width: 0;
+  max-width: 100%;
   padding: 11px 12px;
   border: 1px solid var(--border);
   border-radius: 16px;
@@ -409,6 +420,7 @@ textarea:focus-visible {
 
 .message-bubble__body {
   position: relative;
+  min-width: 0;
 }
 
 .message-bubble__body--collapsed {
@@ -451,6 +463,7 @@ textarea:focus-visible {
 .message-bubble__footer {
   display: flex;
   flex-wrap: wrap;
+  min-width: 0;
   gap: 8px;
 }
 
@@ -464,11 +477,17 @@ textarea:focus-visible {
   font-size: 0.72rem;
 }
 
+.message-sql {
+  min-width: 0;
+  width: 100%;
+}
+
 .message-sql pre,
 .detail-drawer pre {
   margin: 8px 0 0;
   padding: 10px 11px;
   max-height: 180px;
+  max-width: 100%;
   overflow: auto;
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -477,6 +496,8 @@ textarea:focus-visible {
   font-family: "IBM Plex Mono", monospace;
   font-size: 0.74rem;
   line-height: 1.55;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .chat-thinking {

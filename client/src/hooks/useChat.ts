@@ -75,7 +75,7 @@ export const useChat = (options: {
 
   const loadSession = async (nextSessionId: string) => {
     const history = await getChatHistory(nextSessionId);
-    sessionStorage.setItem(SESSION_STORAGE_KEY, nextSessionId);
+    setStoredSessionId(nextSessionId);
     setSessionId(history.sessionId);
     setMessages(history.messages.map(mapHistoryMessage));
   };
@@ -85,11 +85,23 @@ export const useChat = (options: {
     setError(null);
 
     if (replaceExisting) {
-      sessionStorage.removeItem(SESSION_STORAGE_KEY);
+      clearStoredSessionId();
       setMessages([]);
     }
 
-    const persistedSessionId = sessionStorage.getItem(SESSION_STORAGE_KEY);
+    let nextSessions: ChatSessionSummary[] = [];
+
+    try {
+      const response = await getChatSessions();
+      nextSessions = response.sessions;
+      setSessions(nextSessions);
+    } catch (nextError) {
+      setError(
+        getErrorMessage(nextError, "The session list could not be loaded.")
+      );
+    }
+
+    const persistedSessionId = replaceExisting ? null : getStoredSessionId();
 
     if (!replaceExisting && persistedSessionId) {
       try {
@@ -99,7 +111,7 @@ export const useChat = (options: {
         return;
       } catch (nextError) {
         if (axios.isAxiosError(nextError) && nextError.response?.status === 404) {
-          sessionStorage.removeItem(SESSION_STORAGE_KEY);
+          clearStoredSessionId();
         } else {
           setError(
             getErrorMessage(
@@ -111,9 +123,29 @@ export const useChat = (options: {
       }
     }
 
+    if (!replaceExisting && nextSessions.length > 0) {
+      const latestSession = nextSessions[0];
+
+      if (latestSession) {
+        try {
+          await loadSession(latestSession.id);
+          await refreshSessions(latestSession.id);
+          setIsBootstrapping(false);
+          return;
+        } catch (nextError) {
+          setError(
+            getErrorMessage(
+              nextError,
+              "The latest chat session could not be restored."
+            )
+          );
+        }
+      }
+    }
+
     try {
       const nextSession = await createChatSession();
-      sessionStorage.setItem(SESSION_STORAGE_KEY, nextSession.sessionId);
+      setStoredSessionId(nextSession.sessionId);
       setSessionId(nextSession.sessionId);
       setMessages([]);
       await refreshSessions(nextSession.sessionId);
@@ -274,4 +306,27 @@ export const useChat = (options: {
     startNewSession,
     selectSession,
   };
+};
+const getStoredSessionId = () => {
+  try {
+    return window.localStorage.getItem(SESSION_STORAGE_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const setStoredSessionId = (value: string) => {
+  try {
+    window.localStorage.setItem(SESSION_STORAGE_KEY, value);
+  } catch {
+    // Ignore storage write failures and keep the in-memory session.
+  }
+};
+
+const clearStoredSessionId = () => {
+  try {
+    window.localStorage.removeItem(SESSION_STORAGE_KEY);
+  } catch {
+    // Ignore storage write failures and keep going.
+  }
 };

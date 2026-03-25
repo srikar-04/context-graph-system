@@ -26,6 +26,41 @@ const legendTypes: GraphNodeType[] = [
   "Payment",
 ];
 
+const clusterCenters: Record<GraphNodeType, { x: number; y: number }> = {
+  BusinessPartner: { x: -1120, y: -120 },
+  Plant: { x: -500, y: 520 },
+  Product: { x: -120, y: 520 },
+  SalesOrder: { x: -760, y: -200 },
+  SalesOrderItem: { x: -360, y: -110 },
+  ScheduleLine: { x: -80, y: -340 },
+  OutboundDelivery: { x: 130, y: 60 },
+  OutboundDeliveryItem: { x: 460, y: 180 },
+  BillingDocument: { x: 780, y: -20 },
+  BillingDocumentItem: { x: 1080, y: 120 },
+  JournalEntry: { x: 1400, y: -80 },
+  Payment: { x: 1700, y: 120 },
+};
+
+const clusterPhaseOffset: Record<GraphNodeType, number> = {
+  BusinessPartner: -0.18,
+  Plant: 0.82,
+  Product: 1.08,
+  SalesOrder: 0.05,
+  SalesOrderItem: 0.4,
+  ScheduleLine: 0.92,
+  OutboundDelivery: 1.42,
+  OutboundDeliveryItem: 1.78,
+  BillingDocument: 0.2,
+  BillingDocumentItem: 0.66,
+  JournalEntry: 1.08,
+  Payment: 1.54,
+};
+
+type PositionedGraphNode = GraphNode & {
+  x: number;
+  y: number;
+};
+
 const resolveNodeId = (value: unknown) => {
   if (typeof value === "string") {
     return value;
@@ -39,20 +74,42 @@ const resolveNodeId = (value: unknown) => {
   return "";
 };
 
-const usePrefersReducedMotion = () => {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+const buildClusteredGraph = (graph: GraphData) => {
+  const positionedNodes: PositionedGraphNode[] = [];
+  const nodesByType = new Map<GraphNodeType, GraphNode[]>();
 
-  useEffect(() => {
-    const mediaQuery = window.matchMedia("(prefers-reduced-motion: reduce)");
-    const updatePreference = () => setPrefersReducedMotion(mediaQuery.matches);
+  for (const node of graph.nodes) {
+    const typedNodes = nodesByType.get(node.type) ?? [];
+    typedNodes.push(node);
+    nodesByType.set(node.type, typedNodes);
+  }
 
-    updatePreference();
-    mediaQuery.addEventListener("change", updatePreference);
+  for (const type of Object.keys(clusterCenters) as GraphNodeType[]) {
+    const typedNodes = nodesByType.get(type) ?? [];
+    const center = clusterCenters[type];
+    const phaseOffset = clusterPhaseOffset[type];
 
-    return () => mediaQuery.removeEventListener("change", updatePreference);
-  }, []);
+    typedNodes.forEach((node, index) => {
+      const ring = Math.floor(index / 22);
+      const ringStartIndex = ring * 22;
+      const ringIndex = index - ringStartIndex;
+      const pointsOnRing = Math.max(10, 16 + ring * 8);
+      const angle =
+        (ringIndex / pointsOnRing) * Math.PI * 2 + phaseOffset + ring * 0.14;
+      const radius = 34 + ring * 46;
 
-  return prefersReducedMotion;
+      positionedNodes.push({
+        ...node,
+        x: center.x + Math.cos(angle) * radius,
+        y: center.y + Math.sin(angle) * radius,
+      });
+    });
+  }
+
+  return {
+    nodes: positionedNodes,
+    links: graph.edges,
+  };
 };
 
 type GraphPanelProps = {
@@ -87,47 +144,43 @@ export const GraphPanel = ({
   const graphRef = useRef<any>(null);
   const hasInitializedViewRef = useRef(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
-  const prefersReducedMotion = usePrefersReducedMotion();
   const highlightedIds = useMemo(
     () => new Set(highlightedNodeIds),
     [highlightedNodeIds]
   );
 
-  const forceGraphData = useMemo(
-    () => ({
-      nodes: graph.nodes,
-      links: graph.edges,
-    }),
-    [graph.edges, graph.nodes]
-  );
+  const forceGraphData = useMemo(() => buildClusteredGraph(graph), [graph]);
 
   const focusGraph = () => {
-    if (!graphRef.current?.zoomToFit || graph.nodes.length === 0) {
+    if (!graphRef.current?.zoomToFit || forceGraphData.nodes.length === 0) {
       return;
     }
 
-    graphRef.current.zoomToFit(900, 132);
+    graphRef.current.zoomToFit(720, 124);
 
     window.setTimeout(() => {
       const currentZoom = graphRef.current?.zoom?.() ?? 1;
-      graphRef.current?.zoom?.(currentZoom * 1.1, 360);
-      graphRef.current?.centerAt?.(0, 0, 360);
-    }, 860);
+      graphRef.current?.zoom?.(currentZoom * 1.08, 240);
+      graphRef.current?.centerAt?.(320, 40, 240);
+    }, 140);
   };
 
   useEffect(() => {
     hasInitializedViewRef.current = false;
 
-    if (!graphRef.current || graph.nodes.length === 0) {
+    if (!graphRef.current || forceGraphData.nodes.length === 0) {
       return;
     }
 
-    graphRef.current.d3Force("link")?.distance(154);
-    graphRef.current.d3Force("link")?.strength(0.16);
-    graphRef.current.d3Force("charge")?.strength(-360);
-    graphRef.current.d3Force("center")?.strength(0.08);
-    graphRef.current.d3ReheatSimulation?.();
-  }, [graph.nodes.length, graph.edges.length]);
+    const focusTimeout = window.setTimeout(() => {
+      if (!hasInitializedViewRef.current) {
+        hasInitializedViewRef.current = true;
+        focusGraph();
+      }
+    }, 90);
+
+    return () => window.clearTimeout(focusTimeout);
+  }, [forceGraphData.nodes.length]);
 
   return (
     <section className="graph-shell" aria-labelledby="graph-panel-title">
@@ -196,68 +249,37 @@ export const GraphPanel = ({
             linkSource="source"
             linkTarget="target"
             backgroundColor="transparent"
+            enableNodeDrag={false}
+            enablePanInteraction
+            enableZoomInteraction
+            cooldownTicks={0}
+            warmupTicks={0}
+            minZoom={0.12}
+            maxZoom={6}
             nodeLabel={(node) => {
               const graphNode = node as GraphNode;
               return `${graphNode.type}: ${graphNode.label}`;
-            }}
-            cooldownTicks={prefersReducedMotion ? 80 : 260}
-            warmupTicks={prefersReducedMotion ? 12 : 64}
-            d3VelocityDecay={prefersReducedMotion ? 0.58 : 0.18}
-            minZoom={0.12}
-            maxZoom={6}
-            onEngineStop={() => {
-              if (!hasInitializedViewRef.current) {
-                hasInitializedViewRef.current = true;
-                focusGraph();
-              }
             }}
             onNodeClick={(node) => onNodeSelect(node as GraphNode)}
             onNodeHover={(node) => {
               const graphNode = node as GraphNode | null;
               setHoveredNodeId(graphNode?.id ?? null);
             }}
-            linkCanvasObjectMode={() => "replace"}
-            linkCanvasObject={(link, context, globalScale) => {
-              const sourceNode = (link as { source?: { x?: number; y?: number } }).source;
-              const targetNode = (link as { target?: { x?: number; y?: number } }).target;
+            linkColor={(link) => {
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
               const targetId = resolveNodeId((link as { target?: unknown }).target);
-              const sourceX = sourceNode?.x;
-              const sourceY = sourceNode?.y;
-              const targetX = targetNode?.x;
-              const targetY = targetNode?.y;
 
-              if (
-                typeof sourceX !== "number" ||
-                typeof sourceY !== "number" ||
-                typeof targetX !== "number" ||
-                typeof targetY !== "number"
-              ) {
-                return;
-              }
+              return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
+                ? "rgba(79, 124, 255, 0.98)"
+                : "rgba(125, 167, 244, 0.72)";
+            }}
+            linkWidth={(link) => {
+              const sourceId = resolveNodeId((link as { source?: unknown }).source);
+              const targetId = resolveNodeId((link as { target?: unknown }).target);
 
-              const isHighlighted =
-                highlightedIds.has(sourceId) || highlightedIds.has(targetId);
-
-              context.save();
-              context.beginPath();
-              context.moveTo(sourceX, sourceY);
-              context.lineTo(targetX, targetY);
-              context.strokeStyle = isHighlighted
-                ? "rgba(79, 124, 255, 0.22)"
-                : "rgba(96, 165, 250, 0.18)";
-              context.lineWidth = (isHighlighted ? 6.2 : 3.4) / globalScale;
-              context.stroke();
-
-              context.beginPath();
-              context.moveTo(sourceX, sourceY);
-              context.lineTo(targetX, targetY);
-              context.strokeStyle = isHighlighted
-                ? "rgba(79, 124, 255, 0.94)"
-                : "rgba(96, 165, 250, 0.62)";
-              context.lineWidth = (isHighlighted ? 2.6 : 1.4) / globalScale;
-              context.stroke();
-              context.restore();
+              return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
+                ? 3.2
+                : 1.55;
             }}
             nodeCanvasObject={(node, context, globalScale) => {
               const graphNode = node as GraphNode;
@@ -267,14 +289,14 @@ export const GraphPanel = ({
               const isSelected = selectedNodeId === graphNode.id;
               const isHovered = hoveredNodeId === graphNode.id;
               const shouldShowLabel = isSelected || isHovered;
-              const nodeRadius = isSelected ? 4.6 : isHighlighted ? 3.6 : 2.4;
+              const nodeRadius = isSelected ? 4.8 : isHighlighted ? 3.8 : 2.6;
 
               if (isHighlighted || isSelected) {
                 context.beginPath();
-                context.arc(x, y, nodeRadius + 3, 0, 2 * Math.PI, false);
+                context.arc(x, y, nodeRadius + 3.4, 0, 2 * Math.PI, false);
                 context.fillStyle = isSelected
                   ? "rgba(17, 24, 39, 0.12)"
-                  : "rgba(85, 130, 255, 0.12)";
+                  : "rgba(85, 130, 255, 0.14)";
                 context.fill();
               }
 
@@ -287,14 +309,13 @@ export const GraphPanel = ({
                 return;
               }
 
-              const fontSize = 10 / globalScale;
+              context.font = `500 ${10 / globalScale}px "Space Grotesk"`;
               const label = graphNode.label;
               const textWidth = context.measureText(label).width;
               const backgroundWidth = textWidth + 12 / globalScale;
               const backgroundHeight = 18 / globalScale;
               const textY = y - nodeRadius - 10 / globalScale;
 
-              context.font = `500 ${fontSize}px "Space Grotesk"`;
               context.fillStyle = "rgba(255, 255, 255, 0.96)";
               context.fillRect(
                 x - backgroundWidth / 2,
