@@ -42,6 +42,7 @@ type PreparedQueryResult =
       kind: "out_of_scope";
       answer: string;
       sql: null;
+      sqlExplanation: null;
       nodesReferenced: string[];
       executionTimeMs: number;
     }
@@ -49,6 +50,7 @@ type PreparedQueryResult =
       kind: "no_data";
       answer: string;
       sql: string;
+      sqlExplanation: string;
       nodesReferenced: string[];
       executionTimeMs: number;
       rows: Record<string, unknown>[];
@@ -56,6 +58,7 @@ type PreparedQueryResult =
   | {
       kind: "data";
       sql: string;
+      sqlExplanation: string;
       nodesReferenced: string[];
       executionTimeMs: number;
       rows: Record<string, unknown>[];
@@ -92,13 +95,17 @@ You are explaining verified SAP Order-to-Cash query results to a business user.
 
 Rules:
 1. Base every claim only on the provided SQL and result rows.
-2. Explain the business relationship between the entities when possible.
-3. Do NOT dump raw arrays or JSON into the answer.
-4. Keep the answer concise and readable: usually 2 to 5 sentences.
-5. If there are many rows, summarize the count and mention the most useful identifiers.
-6. If there is a clear direct answer, start with it.
-7. Never say you are guessing or hallucinate missing facts.
-8. Prefer explaining how entities connect in the Order-to-Cash flow over listing raw arrays.
+2. Explain what the SQL is doing in plain English. Assume the user does not know SQL or the schema.
+3. Explain the business relationship between the entities when possible.
+4. Start with the direct answer first, then explain how the data was found, then explain what it means in the Order-to-Cash flow.
+5. Write for a non-technical user. Avoid jargon unless you immediately explain it.
+6. Do NOT dump raw arrays or JSON into the answer.
+7. Keep the answer concise but helpful: usually 3 to 6 sentences.
+8. If there are many rows, summarize the count and mention the most useful identifiers instead of listing everything.
+9. If there is a clear direct answer, start with it.
+10. Never say you are guessing or hallucinate missing facts.
+11. Prefer explaining how entities connect in the Order-to-Cash flow over listing raw arrays.
+12. If a result sample is only a preview, say so clearly.
 `.trim();
 
 const OUT_OF_SCOPE_ANSWER =
@@ -565,6 +572,7 @@ ${input.message}
 const buildAnswerMessages = (input: {
   message: string;
   sql: string;
+  sqlExplanation: string;
   rows: Record<string, unknown>[];
   executionTimeMs: number;
 }): ChatCompletionMessageParam[] => {
@@ -583,6 +591,9 @@ ${input.message}
 
 Executed SQL:
 ${input.sql}
+
+Plain-English SQL intent:
+${input.sqlExplanation}
 
 Execution time (ms):
 ${input.executionTimeMs}
@@ -638,10 +649,15 @@ const parseModelResponse = (rawText: string) => {
 
 const buildFallbackAnswer = (input: {
   message: string;
+  sqlExplanation: string;
   rows: Record<string, unknown>[];
 }) => {
+  const explanationPrefix = input.sqlExplanation
+    ? `To answer your question, I looked for records where ${input.sqlExplanation.toLowerCase()}.`
+    : "To answer your question, I queried the relevant Order-to-Cash records.";
+
   if (input.rows.length === 0) {
-    return NO_DATA_ANSWER;
+    return `${explanationPrefix} ${NO_DATA_ANSWER}`.trim();
   }
 
   if (input.rows.length === 1) {
@@ -651,7 +667,7 @@ const buildFallbackAnswer = (input: {
       .map(([key, value]) => `${key}: ${String(value)}`)
       .join(", ");
 
-    return `I found 1 matching record for "${input.message}". ${rowSummary}`.trim();
+    return `${explanationPrefix} I found 1 matching record for "${input.message}". The key details are ${rowSummary}.`.trim();
   }
 
   const preview = input.rows
@@ -670,7 +686,7 @@ const buildFallbackAnswer = (input: {
     .filter(Boolean)
     .join("; ");
 
-  return `I found ${input.rows.length} matching records for "${input.message}". Representative values include ${preview}.`.trim();
+  return `${explanationPrefix} I found ${input.rows.length} matching records for "${input.message}". Representative results include ${preview}.`.trim();
 };
 
 const prepareQueryExecution = async (input: {
@@ -701,6 +717,7 @@ const prepareQueryExecution = async (input: {
       kind: "out_of_scope",
       answer: OUT_OF_SCOPE_ANSWER,
       sql: null,
+      sqlExplanation: null,
       nodesReferenced: [],
       executionTimeMs: 0,
     };
@@ -737,6 +754,7 @@ const prepareQueryExecution = async (input: {
       kind: "no_data",
       answer: NO_DATA_ANSWER,
       sql: safeSql,
+      sqlExplanation: parsedResponse.explanation,
       nodesReferenced,
       executionTimeMs,
       rows,
@@ -746,6 +764,7 @@ const prepareQueryExecution = async (input: {
   return {
     kind: "data",
     sql: safeSql,
+    sqlExplanation: parsedResponse.explanation,
     nodesReferenced,
     executionTimeMs,
     rows,
@@ -777,12 +796,14 @@ export const answerQuery = async (input: {
   const answerMessages = buildAnswerMessages({
     message: input.message,
     sql: prepared.sql,
+    sqlExplanation: prepared.sqlExplanation,
     rows: prepared.rows,
     executionTimeMs: prepared.executionTimeMs,
   });
 
   const fallbackAnswer = buildFallbackAnswer({
     message: input.message,
+    sqlExplanation: prepared.sqlExplanation,
     rows: prepared.rows,
   });
 
@@ -853,12 +874,14 @@ export const streamAnswerQuery = async (
   const answerMessages = buildAnswerMessages({
     message: input.message,
     sql: prepared.sql,
+    sqlExplanation: prepared.sqlExplanation,
     rows: prepared.rows,
     executionTimeMs: prepared.executionTimeMs,
   });
 
   const fallbackAnswer = buildFallbackAnswer({
     message: input.message,
+    sqlExplanation: prepared.sqlExplanation,
     rows: prepared.rows,
   });
 

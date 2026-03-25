@@ -953,6 +953,30 @@ After deploying, run the seed script once via Railway's shell feature or by temp
 
 The React + Vite frontend deploys to Vercel with zero configuration. Connect the GitHub repo, set the root directory to `/frontend`, and Vercel handles the rest. Set the environment variable `VITE_API_URL` to the Railway backend URL so the frontend knows where to send API requests.
 
+### Implementation-Time Deployment Update
+
+During implementation, the deployment path was formalized around the files now present in the repository:
+
+- `render.yaml` for backend deployment on Render
+- `client/vercel.json` for Vercel SPA rewrites
+- `server/package.json` now includes `db:migrate:deploy` for production-safe schema rollout
+
+This means the practical deployment path for the current codebase is:
+
+1. Managed PostgreSQL database
+2. Backend on Render
+3. Frontend on Vercel
+
+This split matches the existing code and requires the least custom infrastructure work for a first production deployment.
+
+For the current intended release path, the deployment should be treated as:
+
+1. Existing Neon PostgreSQL database reused directly
+2. Backend deployed manually from the Render dashboard
+3. Frontend deployed on Vercel
+
+The repository can still keep `render.yaml` as an optional blueprint artifact, but it is not required for deployment if the team prefers a simpler manual Render setup.
+
 ---
 
 ## 17. README Content Guide

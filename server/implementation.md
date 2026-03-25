@@ -632,6 +632,68 @@
 ### Remaining limitation
 
 - I still cannot do a real browser click-through from this terminal alone, so this pass is code- and build-verified rather than visually browser-smoke-tested end to end.
+
+## UX and Deployment Prep Pass - Edge Warning, Better Explanations, and Hosted Config
+
+### Plan improvements applied
+
+- Updated `plan.md` so the deployment strategy now reflects the actual repo configuration for a first production launch:
+  backend on Render with `render.yaml`,
+  frontend on Vercel with `client/vercel.json`,
+  and production migrations through `npm run db:migrate:deploy`.
+
+### What changed in this pass
+
+- Updated `client/src/components/GraphPanel.tsx` and `client/src/index.css` with a temporary UX safeguard for the unresolved first-load edge issue.
+  The graph now shows a small warning banner with a glowing dot that tells the user to refresh once if edges are missing on first load.
+- Strengthened `server/src/services/queryEngine.ts` so the answer-generation pass is more explanatory for non-technical users.
+  The answer prompt now explicitly tells the model to:
+  explain the SQL in plain English,
+  assume the user does not know SQL or the schema,
+  start with the direct answer,
+  then explain how the data was found,
+  and then explain what the result means in the Order-to-Cash flow.
+- Started using the SQL-generation model's own `explanation` field as input to the answer-generation pass.
+  This gives the second-stage response better context about what the SQL was trying to do, which improves readability and reduces cryptic answers.
+- Improved the server fallback answer path in `server/src/services/queryEngine.ts`.
+  If the explanatory answer model is unavailable or rate-limited, the fallback response is now more human-readable and explains the query intent instead of only dumping representative values.
+- Added `db:migrate:deploy` to `server/package.json` for production-safe schema migrations.
+- Added `client/vercel.json` so the Vite frontend behaves correctly as a single-page app on Vercel.
+- Added `render.yaml` so the backend has a concrete Render blueprint for install, Prisma generate, migration deploy, build, start, and health checks.
+- Added `DEPLOYMENT_VERCEL_RENDER.md` at the repo root with a detailed step-by-step deployment guide tailored to this project.
+
+### Verification completed
+
+- `client`: `npm run build`
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- The first-load edge bug is not fully eliminated yet, so this pass adds a clear UI warning and refresh instruction as a temporary user-facing safeguard.
+
+## Deployment Guide Simplification - Render Dashboard + Existing Neon Database
+
+### Plan improvements applied
+
+- Updated the deployment documentation so it now matches the real intended hosting flow:
+  frontend on Vercel,
+  backend on Render,
+  existing seeded Neon PostgreSQL reused directly,
+  and no `render.yaml` required for the first deployment path.
+
+### What changed in this pass
+
+- Replaced the previous deployment guide with a simpler [deployment.md](/c:/Users/srikar/OneDrive/desktop/code/context-graph-system/deployment.md).
+- The guide now assumes:
+  Neon already exists,
+  data is already seeded,
+  backend deployment is created manually from the Render dashboard,
+  and the only production database step is supplying the existing `DATABASE_URL`.
+- The new guide also keeps `npm run db:migrate:deploy` in the Render build command because it is safe when the schema is already current and protects against drift between code and database schema.
+
+### Verification completed
+
+- Documentation-only change; no runtime build changes were required.
 - Verified the client TypeScript build remains clean after the graph-panel rewrite and session bootstrap change.
 
 ### Remaining limitation
