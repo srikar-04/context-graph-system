@@ -23,13 +23,18 @@ function App() {
 
   const {
     sessionId,
+    sessions,
     messages,
     isBootstrapping,
     isSending,
     error: chatError,
     sendMessage,
     startNewSession,
+    selectSession,
   } = useChat({
+    onMeta: (meta) => {
+      setHighlightedNodeIds(meta.nodesReferenced);
+    },
     onAnswer: (response) => {
       setHighlightedNodeIds(response.nodesReferenced);
     },
@@ -40,33 +45,19 @@ function App() {
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
-      <div className="app-shell__glow app-shell__glow--one" aria-hidden="true" />
-      <div className="app-shell__glow app-shell__glow--two" aria-hidden="true" />
 
-      <header className="hero">
-        <div className="hero__copy">
-          <p className="hero__eyebrow">SAP Order-to-Cash Atlas</p>
-          <h1>Trace the full business flow and interrogate it in plain language.</h1>
-          <p className="hero__body">
-            The graph shows the transactional chain. The chat panel turns the
-            same database into a grounded query surface backed by SQL.
-          </p>
+      <header className="topbar">
+        <div className="topbar__breadcrumbs">
+          <span>Mapping</span>
+          <span>/</span>
+          <strong>Order to Cash</strong>
         </div>
 
-        <dl className="hero__metrics">
-          <div className="hero__metric">
-            <dt>Nodes</dt>
-            <dd>{numberFormatter.format(graph.nodes.length)}</dd>
-          </div>
-          <div className="hero__metric">
-            <dt>Edges</dt>
-            <dd>{numberFormatter.format(graph.edges.length)}</dd>
-          </div>
-          <div className="hero__metric">
-            <dt>Highlighted</dt>
-            <dd>{numberFormatter.format(highlightedNodeIds.length)}</dd>
-          </div>
-        </dl>
+        <div className="topbar__stats" aria-label="Application summary">
+          <span>{numberFormatter.format(graph.nodes.length)} nodes</span>
+          <span>{numberFormatter.format(graph.edges.length)} edges</span>
+          <span>{numberFormatter.format(highlightedNodeIds.length)} highlighted</span>
+        </div>
       </header>
 
       <main id="main-content" className="workspace">
@@ -87,6 +78,7 @@ function App() {
 
         <ChatPanel
           sessionId={sessionId}
+          sessions={sessions}
           messages={messages}
           isBootstrapping={isBootstrapping}
           isSending={isSending}
@@ -96,6 +88,11 @@ function App() {
             setHighlightedNodeIds([]);
             closeSelectedNode();
             await startNewSession();
+          }}
+          onSelectSession={async (nextSessionId) => {
+            setHighlightedNodeIds([]);
+            closeSelectedNode();
+            await selectSession(nextSessionId);
           }}
         />
       </main>

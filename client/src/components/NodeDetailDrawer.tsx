@@ -46,29 +46,36 @@ export const NodeDetailDrawer = ({
   return (
     <aside className="detail-drawer" aria-label={`Details for ${node.label}`}>
       <header className="detail-drawer__header">
-        <div>
+        <div className="detail-drawer__heading">
           <p className="detail-drawer__eyebrow">{node.type}</p>
           <h2>{node.label}</h2>
           <p className="detail-drawer__id">{node.id}</p>
         </div>
 
-        <button type="button" className="ghost-button" onClick={onClose}>
-          Close
+        <button
+          type="button"
+          className="detail-drawer__close"
+          onClick={onClose}
+          aria-label="Close details"
+        >
+          x
         </button>
       </header>
 
-      {isLoading && (
-        <p className="detail-drawer__status">Refreshing node details…</p>
-      )}
-      {error && (
-        <p className="detail-drawer__status detail-drawer__status--warning">
-          {error}
-        </p>
+      {(isLoading || error) && (
+        <div className="detail-drawer__statusbar">
+          {isLoading && <p className="detail-drawer__status">Refreshing details...</p>}
+          {error && (
+            <p className="detail-drawer__status detail-drawer__status--warning">
+              {error}
+            </p>
+          )}
+        </div>
       )}
 
       <dl className="detail-drawer__grid">
         {dataEntries.map(([key, value]) => (
-          <div key={key} className="detail-drawer__item">
+          <div key={key} className="detail-drawer__row">
             <dt>{formatLabel(key)}</dt>
             <dd>{renderValue(value)}</dd>
           </div>

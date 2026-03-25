@@ -3,6 +3,8 @@ import axios from "axios";
 import type {
   ChatHistoryMessage,
   ChatResponse,
+  ChatSessionSummary,
+  ChatStreamMeta,
   GraphData,
   GraphNode,
 } from "../types";
@@ -52,12 +54,116 @@ export const getChatHistory = async (sessionId: string) => {
   return response.data;
 };
 
+export const getChatSessions = async () => {
+  const response = await apiClient.get<{
+    sessions: ChatSessionSummary[];
+  }>("/api/query/sessions");
+
+  return response.data;
+};
+
 export const sendChatMessage = async (input: {
   sessionId: string;
   message: string;
 }) => {
   const response = await apiClient.post<ChatResponse>("/api/query/chat", input);
   return response.data;
+};
+
+export const streamChatMessage = async (
+  input: {
+    sessionId: string;
+    message: string;
+  },
+  handlers: {
+    onMeta?: (meta: ChatStreamMeta) => void;
+    onChunk?: (chunk: string) => void;
+  }
+): Promise<ChatResponse> => {
+  const response = await fetch(`${configuredBaseUrl}/api/query/chat/stream`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(input),
+  });
+
+  if (!response.ok || !response.body) {
+    throw new Error("The chat stream could not be started.");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let donePayload: ChatResponse | null = null;
+
+  const processLine = (line: string) => {
+    const event = JSON.parse(line) as
+      | ({ type: "meta" } & ChatStreamMeta)
+      | ({ type: "chunk"; content: string })
+      | ({ type: "done" } & ChatResponse)
+      | { type: "error"; error: string; code?: string };
+
+    if (event.type === "meta") {
+      handlers.onMeta?.({
+        sql: event.sql,
+        nodesReferenced: event.nodesReferenced,
+        executionTimeMs: event.executionTimeMs,
+      });
+      return;
+    }
+
+    if (event.type === "chunk") {
+      handlers.onChunk?.(event.content);
+      return;
+    }
+
+    if (event.type === "done") {
+      donePayload = {
+        answer: event.answer,
+        sql: event.sql,
+        nodesReferenced: event.nodesReferenced,
+        executionTimeMs: event.executionTimeMs,
+      };
+      return;
+    }
+
+    throw new Error(event.error || "The chat stream failed.");
+  };
+
+  while (true) {
+    const { value, done } = await reader.read();
+    buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+
+    let newlineIndex = buffer.indexOf("\n");
+
+    while (newlineIndex >= 0) {
+      const line = buffer.slice(0, newlineIndex).trim();
+      buffer = buffer.slice(newlineIndex + 1);
+
+      if (line) {
+        processLine(line);
+      }
+
+      newlineIndex = buffer.indexOf("\n");
+    }
+
+    if (done) {
+      break;
+    }
+  }
+
+  const finalLine = buffer.trim();
+
+  if (finalLine) {
+    processLine(finalLine);
+  }
+
+  if (!donePayload) {
+    throw new Error("The chat stream ended before a final response arrived.");
+  }
+
+  return donePayload;
 };
 
 export const getErrorMessage = (error: unknown, fallback: string) => {

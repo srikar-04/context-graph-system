@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import type { UiMessage } from "../types";
 
 const timeFormatter = new Intl.DateTimeFormat("en-IN", {
@@ -23,12 +25,17 @@ const renderExecutionTime = (value?: number | null) => {
   return `${value.toLocaleString("en-IN")} ms`;
 };
 
+const shouldClampContent = (content: string) =>
+  content.length > 340 || content.split("\n").length > 8;
+
 type MessageBubbleProps = {
   message: UiMessage;
 };
 
 export const MessageBubble = ({ message }: MessageBubbleProps) => {
   const executionTime = renderExecutionTime(message.executionTimeMs);
+  const [isExpanded, setIsExpanded] = useState(false);
+  const canExpand = shouldClampContent(message.content);
 
   return (
     <article
@@ -45,7 +52,23 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
         </span>
       </header>
 
-      <p className="message-bubble__content">{message.content}</p>
+      <div
+        className={`message-bubble__body${
+          canExpand && !isExpanded ? " message-bubble__body--collapsed" : ""
+        }`}
+      >
+        <p className="message-bubble__content">{message.content || " "}</p>
+      </div>
+
+      {canExpand && (
+        <button
+          type="button"
+          className="message-bubble__expand"
+          onClick={() => setIsExpanded((current) => !current)}
+        >
+          {isExpanded ? "Show less" : "Show more"}
+        </button>
+      )}
 
       {(message.generatedSql || executionTime) && (
         <footer className="message-bubble__footer">
@@ -60,7 +83,7 @@ export const MessageBubble = ({ message }: MessageBubbleProps) => {
 
           {message.generatedSql && (
             <details className="message-sql">
-              <summary>Generated SQL</summary>
+              <summary>SQL</summary>
               <pre>{message.generatedSql}</pre>
             </details>
           )}

@@ -5,26 +5,24 @@ import { NodeDetailDrawer } from "./NodeDetailDrawer";
 import type { GraphData, GraphNode, GraphNodeType } from "../types";
 
 const nodeColors: Record<GraphNodeType, string> = {
-  BusinessPartner: "#0f766e",
-  Plant: "#2563eb",
-  Product: "#ca8a04",
-  SalesOrder: "#7c3aed",
-  SalesOrderItem: "#8b5cf6",
-  ScheduleLine: "#ec4899",
-  OutboundDelivery: "#f97316",
-  OutboundDeliveryItem: "#fb923c",
-  BillingDocument: "#dc2626",
-  BillingDocumentItem: "#f87171",
-  JournalEntry: "#0284c7",
-  Payment: "#059669",
+  BusinessPartner: "#7cb5ff",
+  Plant: "#c8dcff",
+  Product: "#ffb8c9",
+  SalesOrder: "#5b93f8",
+  SalesOrderItem: "#ff9db8",
+  ScheduleLine: "#ffd3de",
+  OutboundDelivery: "#8ebdff",
+  OutboundDeliveryItem: "#ffb0c2",
+  BillingDocument: "#4e86f0",
+  BillingDocumentItem: "#ff91ad",
+  JournalEntry: "#76a8ff",
+  Payment: "#ff7c9f",
 };
 
 const legendTypes: GraphNodeType[] = [
-  "BusinessPartner",
-  "Product",
   "SalesOrder",
-  "OutboundDelivery",
   "BillingDocument",
+  "JournalEntry",
   "Payment",
 ];
 
@@ -87,77 +85,89 @@ export const GraphPanel = ({
   onClearHighlights,
 }: GraphPanelProps) => {
   const graphRef = useRef<any>(null);
+  const hasInitializedViewRef = useRef(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
+  const highlightedIds = new Set(highlightedNodeIds);
+
   const forceGraphData = {
     nodes: graph.nodes,
     links: graph.edges,
   };
 
-  useEffect(() => {
-    if (graph.nodes.length === 0 || !graphRef.current?.zoomToFit) {
+  const focusGraph = () => {
+    if (!graphRef.current?.zoomToFit || graph.nodes.length === 0) {
       return;
     }
 
-    const timeout = window.setTimeout(() => {
-      graphRef.current?.zoomToFit?.(700, 96);
-    }, 250);
+    graphRef.current.zoomToFit(700, 84);
 
-    return () => window.clearTimeout(timeout);
-  }, [graph.nodes.length]);
+    window.setTimeout(() => {
+      const currentZoom = graphRef.current?.zoom?.() ?? 1;
+      graphRef.current?.zoom?.(currentZoom * 1.1, 280);
+      graphRef.current?.centerAt?.(0, 0, 280);
+    }, 760);
+  };
 
-  const highlightedIds = new Set(highlightedNodeIds);
+  useEffect(() => {
+    hasInitializedViewRef.current = false;
+
+    if (!graphRef.current || graph.nodes.length === 0) {
+      return;
+    }
+
+    graphRef.current.d3Force("link")?.distance(96);
+    graphRef.current.d3Force("charge")?.strength(-195);
+    graphRef.current.d3Force("center")?.strength(0.4);
+    graphRef.current.d3ReheatSimulation?.();
+  }, [graph.nodes.length, graph.edges.length]);
 
   return (
-    <section className="panel panel--graph" aria-labelledby="graph-panel-title">
-      <header className="panel__header">
-        <div>
-          <p className="panel__eyebrow">Visual Trace</p>
-          <h2 id="graph-panel-title">Order-to-Cash Graph</h2>
-          <p className="panel__copy">
-            Click any node to inspect its business context and trace where the
-            current answer lands in the flow.
-          </p>
+    <section className="graph-shell" aria-labelledby="graph-panel-title">
+      <header className="graph-shell__header">
+        <div className="graph-shell__title">
+          <p className="surface-eyebrow">Graph</p>
+          <h2 id="graph-panel-title">Order to Cash</h2>
         </div>
 
-        <div className="panel__actions">
-          <button type="button" className="ghost-button" onClick={onRetry}>
-            Refresh Graph
+        <div className="graph-shell__controls">
+          <div className="graph-shell__stats" aria-label="Graph summary">
+            <span>{graph.nodes.length.toLocaleString("en-IN")} nodes</span>
+            <span>{graph.edges.length.toLocaleString("en-IN")} edges</span>
+            <span>{highlightedNodeIds.length.toLocaleString("en-IN")} highlighted</span>
+          </div>
+          <button type="button" className="mini-button" onClick={focusGraph}>
+            Collapse
+          </button>
+          <button type="button" className="mini-button" onClick={onRetry}>
+            Refresh
           </button>
           {highlightedNodeIds.length > 0 && (
-            <button type="button" className="ghost-button" onClick={onClearHighlights}>
-              Clear Highlights
+            <button type="button" className="mini-button" onClick={onClearHighlights}>
+              Clear
             </button>
           )}
         </div>
       </header>
 
-      <div className="graph-panel__toolbar">
-        <div className="graph-stats" aria-label="Graph summary">
-          <span>{graph.nodes.length.toLocaleString("en-IN")} nodes</span>
-          <span>{graph.edges.length.toLocaleString("en-IN")} edges</span>
-          <span>{highlightedNodeIds.length.toLocaleString("en-IN")} highlighted</span>
-        </div>
-
-        <div className="graph-legend" aria-label="Node legend">
-          {legendTypes.map((type) => (
-            <span key={type} className="legend-pill">
-              <span
-                className="legend-pill__swatch"
-                style={{ backgroundColor: nodeColors[type] }}
-                aria-hidden="true"
-              />
-              {type}
-            </span>
-          ))}
-        </div>
+      <div className="graph-shell__legend" aria-label="Node legend">
+        {legendTypes.map((type) => (
+          <span key={type} className="graph-shell__legend-item">
+            <span
+              className="graph-shell__legend-dot"
+              style={{ backgroundColor: nodeColors[type] }}
+              aria-hidden="true"
+            />
+            {type}
+          </span>
+        ))}
       </div>
 
       <div className="graph-surface">
         {isLoading && (
           <div className="empty-state" role="status">
-            <h3>Loading the context graph…</h3>
-            <p>The frontend is pulling the cached graph from the backend.</p>
+            <h3>Loading graph...</h3>
+            <p>Pulling the cached graph from the backend.</p>
           </div>
         )}
 
@@ -165,8 +175,8 @@ export const GraphPanel = ({
           <div className="empty-state empty-state--error" role="alert">
             <h3>Graph unavailable</h3>
             <p>{error}</p>
-            <button type="button" className="primary-button" onClick={onRetry}>
-              Try Again
+            <button type="button" className="mini-button mini-button--solid" onClick={onRetry}>
+              Retry
             </button>
           </div>
         )}
@@ -180,9 +190,14 @@ export const GraphPanel = ({
               const graphNode = node as GraphNode;
               return `${graphNode.type}: ${graphNode.label}`;
             }}
-            cooldownTicks={prefersReducedMotion ? 40 : 120}
-            d3VelocityDecay={prefersReducedMotion ? 0.55 : 0.34}
-            linkDirectionalParticles={0}
+            cooldownTicks={prefersReducedMotion ? 55 : 180}
+            d3VelocityDecay={prefersReducedMotion ? 0.62 : 0.24}
+            onEngineStop={() => {
+              if (!hasInitializedViewRef.current) {
+                hasInitializedViewRef.current = true;
+                focusGraph();
+              }
+            }}
             onNodeClick={(node) => onNodeSelect(node as GraphNode)}
             onNodeHover={(node) => {
               const graphNode = node as GraphNode | null;
@@ -193,16 +208,16 @@ export const GraphPanel = ({
               const targetId = resolveNodeId((link as { target?: unknown }).target);
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? 1.9
-                : 0.8;
+                ? 2.2
+                : 1.1;
             }}
             linkColor={(link) => {
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
               const targetId = resolveNodeId((link as { target?: unknown }).target);
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? "rgba(249, 115, 22, 0.75)"
-                : "rgba(75, 85, 99, 0.28)";
+                ? "rgba(55, 120, 246, 0.92)"
+                : "rgba(118, 181, 255, 0.44)";
             }}
             nodeCanvasObject={(node, context, globalScale) => {
               const graphNode = node as GraphNode;
@@ -211,15 +226,15 @@ export const GraphPanel = ({
               const isHighlighted = highlightedIds.has(graphNode.id);
               const isSelected = selectedNodeId === graphNode.id;
               const isHovered = hoveredNodeId === graphNode.id;
-              const shouldShowLabel = isHighlighted || isSelected || isHovered;
-              const nodeRadius = isSelected ? 7.5 : isHighlighted ? 6.6 : 5.2;
+              const shouldShowLabel = isSelected || isHovered;
+              const nodeRadius = isSelected ? 4.4 : isHighlighted ? 3.4 : 2.2;
 
               if (isHighlighted || isSelected) {
                 context.beginPath();
-                context.arc(x, y, nodeRadius + 4.5, 0, 2 * Math.PI, false);
+                context.arc(x, y, nodeRadius + 3, 0, 2 * Math.PI, false);
                 context.fillStyle = isSelected
-                  ? "rgba(250, 204, 21, 0.36)"
-                  : "rgba(56, 189, 248, 0.28)";
+                  ? "rgba(17, 24, 39, 0.12)"
+                  : "rgba(85, 130, 255, 0.12)";
                 context.fill();
               }
 
@@ -228,32 +243,33 @@ export const GraphPanel = ({
               context.fillStyle = nodeColors[graphNode.type];
               context.fill();
 
-              context.lineWidth = isSelected ? 2.2 : 1.1;
-              context.strokeStyle = "rgba(255, 251, 235, 0.92)";
-              context.stroke();
-
               if (!shouldShowLabel) {
                 return;
               }
 
-              const fontSize = 12 / globalScale;
+              const fontSize = 10 / globalScale;
               const label = graphNode.label;
-
-              context.font = `600 ${fontSize}px "Space Grotesk"`;
               const textWidth = context.measureText(label).width;
-              const backgroundWidth = textWidth + 16 / globalScale;
-              const backgroundHeight = 22 / globalScale;
+              const backgroundWidth = textWidth + 12 / globalScale;
+              const backgroundHeight = 18 / globalScale;
               const textY = y - nodeRadius - 10 / globalScale;
 
-              context.fillStyle = "rgba(15, 23, 42, 0.9)";
+              context.font = `500 ${fontSize}px "Space Grotesk"`;
+              context.fillStyle = "rgba(255, 255, 255, 0.96)";
               context.fillRect(
                 x - backgroundWidth / 2,
                 textY - backgroundHeight / 2,
                 backgroundWidth,
                 backgroundHeight
               );
-
-              context.fillStyle = "rgba(248, 250, 252, 0.96)";
+              context.strokeStyle = "rgba(17, 24, 39, 0.08)";
+              context.strokeRect(
+                x - backgroundWidth / 2,
+                textY - backgroundHeight / 2,
+                backgroundWidth,
+                backgroundHeight
+              );
+              context.fillStyle = "rgba(17, 24, 39, 0.92)";
               context.textAlign = "center";
               context.textBaseline = "middle";
               context.fillText(label, x, textY);

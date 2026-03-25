@@ -38,8 +38,21 @@ export type ChatHistoryMessage = {
   createdAt: string;
 };
 
+export type ChatSessionSummary = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type ChatResponse = {
   answer: string;
+  sql: string | null;
+  nodesReferenced: string[];
+  executionTimeMs: number;
+};
+
+export type ChatStreamMeta = {
   sql: string | null;
   nodesReferenced: string[];
   executionTimeMs: number;
@@ -53,4 +66,5 @@ export type UiMessage = {
   generatedSql?: string | null;
   executionTimeMs?: number | null;
   isError?: boolean;
+  isStreaming?: boolean;
 };
