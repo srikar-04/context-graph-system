@@ -1,22 +1,22 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ForceGraph2D from "react-force-graph-2d";
 
 import { NodeDetailDrawer } from "./NodeDetailDrawer";
 import type { GraphData, GraphNode, GraphNodeType } from "../types";
 
 const nodeColors: Record<GraphNodeType, string> = {
-  BusinessPartner: "#7cb5ff",
-  Plant: "#c8dcff",
-  Product: "#ffb8c9",
-  SalesOrder: "#5b93f8",
-  SalesOrderItem: "#ff9db8",
-  ScheduleLine: "#ffd3de",
-  OutboundDelivery: "#8ebdff",
-  OutboundDeliveryItem: "#ffb0c2",
-  BillingDocument: "#4e86f0",
-  BillingDocumentItem: "#ff91ad",
-  JournalEntry: "#76a8ff",
-  Payment: "#ff7c9f",
+  BusinessPartner: "#7c93f6",
+  Plant: "#a8b5d4",
+  Product: "#f3b45f",
+  SalesOrder: "#4f7cff",
+  SalesOrderItem: "#7eb0ff",
+  ScheduleLine: "#bfd6ff",
+  OutboundDelivery: "#7c5cff",
+  OutboundDeliveryItem: "#b6a6ff",
+  BillingDocument: "#f97316",
+  BillingDocumentItem: "#fdba74",
+  JournalEntry: "#14b8a6",
+  Payment: "#ec4899",
 };
 
 const legendTypes: GraphNodeType[] = [
@@ -88,25 +88,31 @@ export const GraphPanel = ({
   const hasInitializedViewRef = useRef(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const prefersReducedMotion = usePrefersReducedMotion();
-  const highlightedIds = new Set(highlightedNodeIds);
+  const highlightedIds = useMemo(
+    () => new Set(highlightedNodeIds),
+    [highlightedNodeIds]
+  );
 
-  const forceGraphData = {
-    nodes: graph.nodes,
-    links: graph.edges,
-  };
+  const forceGraphData = useMemo(
+    () => ({
+      nodes: graph.nodes,
+      links: graph.edges,
+    }),
+    [graph.edges, graph.nodes]
+  );
 
   const focusGraph = () => {
     if (!graphRef.current?.zoomToFit || graph.nodes.length === 0) {
       return;
     }
 
-    graphRef.current.zoomToFit(700, 84);
+    graphRef.current.zoomToFit(900, 132);
 
     window.setTimeout(() => {
       const currentZoom = graphRef.current?.zoom?.() ?? 1;
-      graphRef.current?.zoom?.(currentZoom * 1.1, 280);
-      graphRef.current?.centerAt?.(0, 0, 280);
-    }, 760);
+      graphRef.current?.zoom?.(currentZoom * 1.1, 360);
+      graphRef.current?.centerAt?.(0, 0, 360);
+    }, 860);
   };
 
   useEffect(() => {
@@ -116,9 +122,10 @@ export const GraphPanel = ({
       return;
     }
 
-    graphRef.current.d3Force("link")?.distance(96);
-    graphRef.current.d3Force("charge")?.strength(-195);
-    graphRef.current.d3Force("center")?.strength(0.4);
+    graphRef.current.d3Force("link")?.distance(154);
+    graphRef.current.d3Force("link")?.strength(0.16);
+    graphRef.current.d3Force("charge")?.strength(-360);
+    graphRef.current.d3Force("center")?.strength(0.08);
     graphRef.current.d3ReheatSimulation?.();
   }, [graph.nodes.length, graph.edges.length]);
 
@@ -185,13 +192,19 @@ export const GraphPanel = ({
           <ForceGraph2D
             ref={graphRef}
             graphData={forceGraphData}
+            nodeId="id"
+            linkSource="source"
+            linkTarget="target"
             backgroundColor="transparent"
             nodeLabel={(node) => {
               const graphNode = node as GraphNode;
               return `${graphNode.type}: ${graphNode.label}`;
             }}
-            cooldownTicks={prefersReducedMotion ? 55 : 180}
-            d3VelocityDecay={prefersReducedMotion ? 0.62 : 0.24}
+            cooldownTicks={prefersReducedMotion ? 80 : 260}
+            warmupTicks={prefersReducedMotion ? 12 : 64}
+            d3VelocityDecay={prefersReducedMotion ? 0.58 : 0.18}
+            minZoom={0.12}
+            maxZoom={6}
             onEngineStop={() => {
               if (!hasInitializedViewRef.current) {
                 hasInitializedViewRef.current = true;
@@ -203,21 +216,48 @@ export const GraphPanel = ({
               const graphNode = node as GraphNode | null;
               setHoveredNodeId(graphNode?.id ?? null);
             }}
-            linkWidth={(link) => {
+            linkCanvasObjectMode={() => "replace"}
+            linkCanvasObject={(link, context, globalScale) => {
+              const sourceNode = (link as { source?: { x?: number; y?: number } }).source;
+              const targetNode = (link as { target?: { x?: number; y?: number } }).target;
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
               const targetId = resolveNodeId((link as { target?: unknown }).target);
+              const sourceX = sourceNode?.x;
+              const sourceY = sourceNode?.y;
+              const targetX = targetNode?.x;
+              const targetY = targetNode?.y;
 
-              return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? 2.2
-                : 1.1;
-            }}
-            linkColor={(link) => {
-              const sourceId = resolveNodeId((link as { source?: unknown }).source);
-              const targetId = resolveNodeId((link as { target?: unknown }).target);
+              if (
+                typeof sourceX !== "number" ||
+                typeof sourceY !== "number" ||
+                typeof targetX !== "number" ||
+                typeof targetY !== "number"
+              ) {
+                return;
+              }
 
-              return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? "rgba(55, 120, 246, 0.92)"
-                : "rgba(118, 181, 255, 0.44)";
+              const isHighlighted =
+                highlightedIds.has(sourceId) || highlightedIds.has(targetId);
+
+              context.save();
+              context.beginPath();
+              context.moveTo(sourceX, sourceY);
+              context.lineTo(targetX, targetY);
+              context.strokeStyle = isHighlighted
+                ? "rgba(79, 124, 255, 0.22)"
+                : "rgba(96, 165, 250, 0.18)";
+              context.lineWidth = (isHighlighted ? 6.2 : 3.4) / globalScale;
+              context.stroke();
+
+              context.beginPath();
+              context.moveTo(sourceX, sourceY);
+              context.lineTo(targetX, targetY);
+              context.strokeStyle = isHighlighted
+                ? "rgba(79, 124, 255, 0.94)"
+                : "rgba(96, 165, 250, 0.62)";
+              context.lineWidth = (isHighlighted ? 2.6 : 1.4) / globalScale;
+              context.stroke();
+              context.restore();
             }}
             nodeCanvasObject={(node, context, globalScale) => {
               const graphNode = node as GraphNode;
@@ -227,7 +267,7 @@ export const GraphPanel = ({
               const isSelected = selectedNodeId === graphNode.id;
               const isHovered = hoveredNodeId === graphNode.id;
               const shouldShowLabel = isSelected || isHovered;
-              const nodeRadius = isSelected ? 4.4 : isHighlighted ? 3.4 : 2.2;
+              const nodeRadius = isSelected ? 4.6 : isHighlighted ? 3.6 : 2.4;
 
               if (isHighlighted || isSelected) {
                 context.beginPath();
