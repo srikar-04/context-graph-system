@@ -574,3 +574,36 @@
 - Re-ran the previously failing sales-order linkage style query:
   `How is sales order 740565 linked?`
   and confirmed it now produced valid quoted SQL against `"SalesOrderHeader"` instead of failing on lowercase relation names, while also returning a non-zero `nodesReferenced` payload.
+
+## Client Stability Pass - Chat Containment, Graph Layout, and Session Restore
+
+### Plan improvements applied
+
+- Updated `plan.md` so the frontend architecture now explicitly records that long chat/session content must not widen the chat card outside its border.
+- Updated `plan.md` so session bootstrapping now restores the latest existing conversation before creating a fresh one.
+- Updated `plan.md` so the graph strategy now reflects a deterministic type-clustered initial layout instead of relying only on the default force simulation, which had been collapsing the dataset into an unreadable central cluster.
+
+### What changed in this pass
+
+- Tightened `client/src/index.css` so the chat shell contains its own content correctly:
+  the shell clips internal overflow again,
+  the session strip scrolls inside the card instead of pushing past it,
+  and long SQL/details content now wraps inside the message surface instead of stretching the whole panel.
+- Reworked `client/src/components/GraphPanel.tsx` so the graph starts from a deliberate separated layout:
+  nodes are pre-positioned by entity family,
+  cross-entity links render through the library's default link path on first load,
+  and the initial `Collapse` view now fits and centers that wider transactional map instead of a collapsed hairball.
+- Updated `client/src/hooks/useChat.ts` so startup no longer creates a new chat session every time.
+  The client now:
+  restores the previously stored session from browser storage when possible,
+  otherwise loads the latest session from the backend,
+  and only creates a new session when no historical session exists.
+
+### Verification completed
+
+- `client`: `npm run build`
+- Verified the client TypeScript build remains clean after the graph-panel rewrite and session bootstrap change.
+
+### Remaining limitation
+
+- I still cannot do a real browser click-through from this terminal alone, so this pass is code- and build-verified rather than visually browser-smoke-tested end to end.
