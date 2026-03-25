@@ -602,6 +602,36 @@
 ### Verification completed
 
 - `client`: `npm run build`
+
+## Client and LLM Reliability Pass - Graph Canvas Ownership, Click Restoration, and Stream Error Hardening
+
+### Plan improvements applied
+
+- Updated `plan.md` to record that the graph canvas must be sized from measured container dimensions instead of being CSS-stretched after render.
+- Updated `plan.md` to record that the staged graph should use a deterministic bounds-based initial camera rather than relying only on generic `zoomToFit` behavior.
+- Updated `plan.md` to record that streamed LLM failures must be logged server-side and that transient Gemini provider failures should be retried in the OpenAI-compatible wrapper.
+
+### What changed in this pass
+
+- Reworked `client/src/components/GraphPanel.tsx` so the graph now waits for measured surface dimensions before mounting the force-graph canvas.
+  The component now passes explicit `width` and `height` props, computes stable graph bounds from the staged node positions, and restores the initial camera by centering on those bounds and applying a controlled zoom level.
+- Added a larger invisible node hit area in `client/src/components/GraphPanel.tsx` with `nodePointerAreaPaint`.
+  This restores reliable node clicking and metadata opening even though the visible nodes remain intentionally small.
+- Tightened `client/src/index.css` so `.graph-surface` owns the full available panel height and no longer stretches the underlying graph canvas with CSS width/height overrides.
+  This addresses the repeated first-load problems where edges disappeared, only part of the graph rendered, or pointer hit-testing drifted away from the visible nodes.
+- Hardened `server/src/services/genai.ts` so Gemini requests made through the OpenAI-compatible API now retry a small number of times for transient provider failures such as rate limits, connection issues, and upstream 5xx responses.
+  Non-transient model failures are normalized into explicit `ApiError` instances instead of bubbling up as opaque unknown exceptions.
+- Updated `server/src/routes/query.routes.ts` so `/api/query/chat/stream` now logs the original error object, session id, and message context before converting the failure into a client-facing stream error event.
+  This closes the debugging gap that previously produced regular `Internal server error.` responses in the UI with no useful backend log trail.
+
+### Verification completed
+
+- `client`: `npm run build`
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- I still cannot do a real browser click-through from this terminal alone, so this pass is code- and build-verified rather than visually browser-smoke-tested end to end.
 - Verified the client TypeScript build remains clean after the graph-panel rewrite and session bootstrap change.
 
 ### Remaining limitation

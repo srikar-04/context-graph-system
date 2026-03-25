@@ -974,3 +974,29 @@ The README is itself an evaluation artifact. Write it with the following section
 ---
 
 _This document was authored as the complete architectural specification for the SAP O2C Graph System assignment for Dodge AI. Every decision documented here is grounded in the constraints of the assignment, the available free-tier tools, and production engineering best practices._
+
+---
+
+## 18. Stability Notes Added During Implementation
+
+These implementation-time corrections are now part of the durable plan because they address repeated runtime failures observed during real usage.
+
+### Graph Canvas Ownership
+
+The graph canvas must be sized by the graph component itself from measured container dimensions. Do not stretch the `<canvas>` with CSS `width: 100%` / `height: 100%` overrides after render, because that breaks edge rendering, zoom centering, and node hit-testing.
+
+### Deterministic Initial Graph Camera
+
+Because the frontend now uses a fixed stage-based graph layout instead of a free-running force simulation, the initial camera should center and zoom from the actual positioned node bounds rather than relying purely on library `zoomToFit` heuristics. This avoids first-load states where only part of the graph is visible or the layout appears collapsed into one section of the canvas.
+
+### Node Interaction Reliability
+
+Visible nodes may remain visually small, but the graph must provide a larger invisible pointer area so users can still click transactional entities reliably and open metadata without precision issues.
+
+### Streamed LLM Error Visibility
+
+The `/api/query/chat/stream` route must always log the original thrown error before converting it into a client-facing API message. Otherwise repeated provider or SQL-generation failures become impossible to debug from the backend logs.
+
+### Gemini / OpenAI-Compatible Retry Handling
+
+Transient model-provider failures such as rate limits, connection resets, and upstream 5xx responses should be retried a small number of times in the Gemini OpenAI-compatible client wrapper before surfacing an error to the user. Permanent request failures should still be normalized into explicit API errors.

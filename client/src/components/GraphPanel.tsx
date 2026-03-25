@@ -113,6 +113,31 @@ const buildStageLayoutGraph = (graph: GraphData) => {
   };
 };
 
+const getGraphBounds = (nodes: PositionedGraphNode[]) => {
+  if (nodes.length === 0) {
+    return null;
+  }
+
+  let minX = nodes[0].x;
+  let maxX = nodes[0].x;
+  let minY = nodes[0].y;
+  let maxY = nodes[0].y;
+
+  for (const node of nodes) {
+    minX = Math.min(minX, node.x);
+    maxX = Math.max(maxX, node.x);
+    minY = Math.min(minY, node.y);
+    maxY = Math.max(maxY, node.y);
+  }
+
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+  };
+};
+
 type GraphPanelProps = {
   graph: GraphData;
   isLoading: boolean;
@@ -143,26 +168,84 @@ export const GraphPanel = ({
   onClearHighlights,
 }: GraphPanelProps) => {
   const graphRef = useRef<any>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
   const hasInitializedViewRef = useRef(false);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+  const [surfaceSize, setSurfaceSize] = useState({
+    width: 0,
+    height: 0,
+  });
   const highlightedIds = useMemo(
     () => new Set(highlightedNodeIds),
     [highlightedNodeIds]
   );
-
   const forceGraphData = useMemo(() => buildStageLayoutGraph(graph), [graph]);
+  const graphBounds = useMemo(
+    () => getGraphBounds(forceGraphData.nodes),
+    [forceGraphData.nodes]
+  );
 
-  const focusGraph = () => {
-    if (!graphRef.current?.zoomToFit || forceGraphData.nodes.length === 0) {
+  useEffect(() => {
+    const surfaceElement = surfaceRef.current;
+
+    if (!surfaceElement || typeof ResizeObserver === "undefined") {
       return;
     }
 
-    graphRef.current.zoomToFit(780, 96);
+    const updateSize = () => {
+      const bounds = surfaceElement.getBoundingClientRect();
 
-    window.setTimeout(() => {
-      const currentZoom = graphRef.current?.zoom?.() ?? 1;
-      graphRef.current?.zoom?.(currentZoom * 1.06, 180);
-    }, 120);
+      setSurfaceSize({
+        width: Math.max(0, Math.floor(bounds.width)),
+        height: Math.max(0, Math.floor(bounds.height)),
+      });
+    };
+
+    updateSize();
+
+    const observer = new ResizeObserver(() => {
+      updateSize();
+    });
+
+    observer.observe(surfaceElement);
+
+    return () => observer.disconnect();
+  }, []);
+
+  const focusGraph = () => {
+    if (
+      !graphRef.current?.centerAt ||
+      !graphRef.current?.zoom ||
+      forceGraphData.nodes.length === 0 ||
+      !graphBounds ||
+      surfaceSize.width === 0 ||
+      surfaceSize.height === 0
+    ) {
+      return;
+    }
+
+    const horizontalPadding = 240;
+    const verticalPadding = 180;
+    const graphWidth = Math.max(
+      graphBounds.maxX - graphBounds.minX + horizontalPadding * 2,
+      1
+    );
+    const graphHeight = Math.max(
+      graphBounds.maxY - graphBounds.minY + verticalPadding * 2,
+      1
+    );
+    const zoomLevel =
+      Math.min(
+        surfaceSize.width / graphWidth,
+        surfaceSize.height / graphHeight
+      ) * 1.1;
+
+    graphRef.current.centerAt(
+      (graphBounds.minX + graphBounds.maxX) / 2,
+      (graphBounds.minY + graphBounds.maxY) / 2,
+      280
+    );
+    graphRef.current.zoom(Math.max(0.14, Math.min(zoomLevel, 4.2)), 280);
   };
 
   useEffect(() => {
@@ -180,7 +263,12 @@ export const GraphPanel = ({
     }, 80);
 
     return () => window.clearTimeout(focusTimeout);
-  }, [forceGraphData.nodes.length, forceGraphData.links.length]);
+  }, [
+    forceGraphData.nodes.length,
+    forceGraphData.links.length,
+    surfaceSize.width,
+    surfaceSize.height,
+  ]);
 
   return (
     <section className="graph-shell" aria-labelledby="graph-panel-title">
@@ -223,7 +311,7 @@ export const GraphPanel = ({
         ))}
       </div>
 
-      <div className="graph-surface">
+      <div ref={surfaceRef} className="graph-surface">
         {isLoading && (
           <div className="empty-state" role="status">
             <h3>Loading graph...</h3>
@@ -241,10 +329,15 @@ export const GraphPanel = ({
           </div>
         )}
 
-        {!isLoading && !error && (
+        {!isLoading &&
+          !error &&
+          surfaceSize.width > 0 &&
+          surfaceSize.height > 0 && (
           <ForceGraph2D
             ref={graphRef}
             graphData={forceGraphData}
+            width={surfaceSize.width}
+            height={surfaceSize.height}
             nodeId="id"
             linkSource="source"
             linkTarget="target"
@@ -252,8 +345,8 @@ export const GraphPanel = ({
             enableNodeDrag={false}
             enablePanInteraction
             enableZoomInteraction
-            cooldownTicks={0}
-            warmupTicks={0}
+            cooldownTicks={1}
+            warmupTicks={1}
             minZoom={0.12}
             maxZoom={6}
             nodeLabel={(node) => {
@@ -265,13 +358,22 @@ export const GraphPanel = ({
               const graphNode = node as GraphNode | null;
               setHoveredNodeId(graphNode?.id ?? null);
             }}
+            nodePointerAreaPaint={(node, color, context) => {
+              const x = (node as { x?: number }).x ?? 0;
+              const y = (node as { y?: number }).y ?? 0;
+
+              context.fillStyle = color;
+              context.beginPath();
+              context.arc(x, y, 9, 0, 2 * Math.PI, false);
+              context.fill();
+            }}
             linkColor={(link) => {
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
               const targetId = resolveNodeId((link as { target?: unknown }).target);
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
                 ? "rgba(79, 124, 255, 0.88)"
-                : "rgba(125, 167, 244, 0.32)";
+                : "rgba(125, 167, 244, 0.42)";
             }}
             linkWidth={(link) => {
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
@@ -279,7 +381,7 @@ export const GraphPanel = ({
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
                 ? 2.4
-                : 0.9;
+                : 1.15;
             }}
             nodeCanvasObject={(node, context, globalScale) => {
               const graphNode = node as GraphNode;

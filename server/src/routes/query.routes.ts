@@ -111,6 +111,16 @@ queryRouter.post(
         ...response,
       });
     } catch (error) {
+      console.error("Query stream failed", {
+        sessionId:
+          typeof req.body?.sessionId === "string"
+            ? req.body.sessionId
+            : undefined,
+        message:
+          typeof req.body?.message === "string" ? req.body.message : undefined,
+        error,
+      });
+
       const apiError =
         error instanceof ApiError
           ? error
