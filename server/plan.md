@@ -726,7 +726,7 @@ This is the most complex part of the system. When a user types a question, the f
 
 **Stage 5 — Parse and validate the LLM response.** The raw text response from Gemini is parsed as JSON. If parsing fails (Gemini returned malformed JSON despite instructions), the error handler returns a user-friendly message. If the response contains `{ "error": "out_of_scope" }`, the guardrail is triggered.
 
-**Stage 6 — SQL safety validation.** Before executing any SQL, the system checks that the query starts with `SELECT` (uppercased after trimming). Any query containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, or `ALTER` is rejected immediately. This prevents prompt injection attacks where a malicious user could attempt to manipulate the LLM into generating data-destructive queries.
+**Stage 6 — SQL safety validation.** Before executing any SQL, the system checks that the query starts with `SELECT` (uppercased after trimming). Any query containing `INSERT`, `UPDATE`, `DELETE`, `DROP`, or `ALTER` is rejected immediately. The backend should also canonicalize case-sensitive identifiers against the real Prisma migration metadata before execution, so brittle model output such as `salesorderheader` is repaired to `"SalesOrderHeader"` and known mixed-case columns are re-quoted safely. This prevents prompt injection attacks where a malicious user could attempt to manipulate the LLM into generating data-destructive queries, and it also hardens the happy path against PostgreSQL case-sensitivity mistakes.
 
 **Stage 7 — Execute the SQL.** The validated SQL is executed using Prisma's `$queryRaw` method, which runs arbitrary SQL and returns typed results. This is wrapped in a try/catch — if the SQL is syntactically invalid or references a non-existent table, the error is caught and a safe error message is returned.
 
@@ -795,7 +795,9 @@ The frontend is a single-page React application with a two-panel layout. The lef
 
 The graph panel uses `react-force-graph-2d`. On mount, it calls `GET /api/graph` and stores the result in React state. The frontend adapts the backend `{ nodes, edges }` payload into the library's `{ nodes, links }` shape before rendering. The `ForceGraph2D` component then handles the physics simulation internally.
 
-Node colors should stay inside a restrained palette that reads cleanly in a large graph at a glance — primarily soft blues plus a small rose accent family for contrast. Nodes should be visually small, edges should be more visible than the current defaults, and the force layout should use longer link distances / stronger repulsion so the graph breathes in a larger canvas.
+Node colors should stay inside a restrained palette that reads cleanly in a large graph at a glance, but the main transactional entity families must still be easy to distinguish quickly. In practice, `SalesOrder`, `BillingDocument`, and `JournalEntry` should not all collapse into near-identical blues; use contrasting hues while keeping the overall surface minimal. Nodes should be visually small, edges should be more visible than the current defaults, and the force layout should use longer link distances / stronger repulsion so the graph breathes in a larger canvas.
+
+The graph shell itself should never clip important controls. If the top control row or the chat session strip runs out of horizontal room, those areas should wrap or scroll horizontally instead of hiding actions like refresh/reset. For link rendering, prefer explicit canvas styling with enough contrast against the light background so edges are visible on first load without needing a manual refresh.
 
 When a node is clicked, a detail panel slides in showing all fields stored in `node.data`. The drawer header should stay sticky while the metadata scrolls, the dismiss action should be a compact `x` control, and the metadata itself should be presented as compact key-value rows rather than loose heading/body cards.
 

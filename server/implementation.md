@@ -537,3 +537,40 @@
   returned non-zero node references and a relational answer rather than dumping a raw row array.
 - Verified session titles are now human-readable, for example:
   `Find the journal entry linked to billing document 91150...`
+
+## Regression Fix Pass - Graph Visibility and SQL Reliability
+
+### Plan improvements applied
+
+- Updated `plan.md` so the LLM step now explicitly records identifier canonicalization against real schema metadata before SQL execution.
+- Updated `plan.md` so the frontend step now records that graph/chat headers must not clip controls and that graph links should be drawn with enough contrast to remain visible on the initial light-theme view.
+
+### What changed in this pass
+
+- Tightened the frontend shell layout in `client/src/index.css` so the graph and chat cards no longer clip header controls when space gets tight:
+  the page now scrolls vertically when needed,
+  shell overflow is no longer hiding top controls,
+  and header/session areas can wrap or scroll instead of cutting off actions.
+- Reworked `client/src/components/GraphPanel.tsx` so graph rendering is easier to read:
+  `SalesOrder`, `BillingDocument`, and `JournalEntry` now use clearly separated colors,
+  graph spacing is increased with longer link distances and stronger repulsion,
+  and links are drawn explicitly on the canvas with a stronger two-pass stroke so they remain visible on the light background.
+- Strengthened `server/src/services/queryEngine.ts` so generated SQL is more reliable:
+  the prompt now requires exact quoted PostgreSQL identifiers,
+  semicolon handling no longer silently strips validation context,
+  and the backend canonicalizes known table/column names against parsed Prisma migration metadata before execution.
+- Added schema metadata parsing in `server/src/constants/schema.ts` so the query layer can repair brittle model output like `salesorderheader` into `"SalesOrderHeader"` safely.
+- Expanded node highlighting in `server/src/services/queryEngine.ts` to include one-hop graph neighbors after the initial matches, which makes highlighted edges much more visible after a successful answer.
+
+### Verification completed
+
+- `server`: `npm run build`
+- `client`: `npm run build`
+- Started the built backend against the real environment and verified `GET /api/health` responded successfully.
+- Verified `GET /api/graph` still returns `1441` nodes and `2957` edges.
+- Ran a real streamed query for:
+  `Show billing documents for customer 320000083`
+  and confirmed the response executed valid SQL, returned `50` highlighted nodes, and streamed a successful answer.
+- Re-ran the previously failing sales-order linkage style query:
+  `How is sales order 740565 linked?`
+  and confirmed it now produced valid quoted SQL against `"SalesOrderHeader"` instead of failing on lowercase relation names, while also returning a non-zero `nodesReferenced` payload.

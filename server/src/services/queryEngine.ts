@@ -4,6 +4,7 @@ import type { ChatCompletionMessageParam } from "openai/resources/chat/completio
 import {
   ALLOWED_TABLES,
   getDatabaseSchemaPrompt,
+  getSchemaMetadata,
 } from "../constants/schema.js";
 import { getCachedGraph, rebuildGraphCache } from "./graphCacheService.js";
 import { prisma } from "../lib/prisma.js";
@@ -79,9 +80,11 @@ Rules:
 4. If the question is unrelated, not answerable from the dataset, or asks for general knowledge, return exactly:
    {"error":"out_of_scope"}
 5. NEVER generate INSERT, UPDATE, DELETE, DROP, ALTER, TRUNCATE, CREATE, or any non-SELECT SQL.
-6. Use table names and column names exactly as provided.
-7. Keep the SQL focused and safe. No multiple statements. No semicolons.
-8. Prefer returning the identifiers and business fields needed to explain entity relationships, not only aggregates.
+6. Use PostgreSQL syntax only.
+7. Every table name and every column name must use the exact case-sensitive identifier from the schema and must be wrapped in double quotes.
+8. NEVER use lowercase or unquoted table names like salesorderheader. Use "SalesOrderHeader".
+9. Keep the SQL focused and safe. Return exactly one SELECT statement. No commentary. No markdown.
+10. Prefer returning the identifiers and business fields needed to explain entity relationships, not only aggregates.
 `.trim();
 
 const ANSWER_SYSTEM_INSTRUCTIONS = `
@@ -95,6 +98,7 @@ Rules:
 5. If there are many rows, summarize the count and mention the most useful identifiers.
 6. If there is a clear direct answer, start with it.
 7. Never say you are guessing or hallucinate missing facts.
+8. Prefer explaining how entities connect in the Order-to-Cash flow over listing raw arrays.
 `.trim();
 
 const OUT_OF_SCOPE_ANSWER =
@@ -115,8 +119,59 @@ const sanitizeSql = (sql: string) =>
     .replace(/^```sql\s*/i, "")
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
-    .split(";")[0]
     ?.trim() ?? "";
+
+const SQL_KEYWORDS = new Set([
+  "all",
+  "and",
+  "any",
+  "as",
+  "asc",
+  "avg",
+  "between",
+  "by",
+  "case",
+  "count",
+  "cross",
+  "current_date",
+  "date",
+  "desc",
+  "distinct",
+  "else",
+  "end",
+  "exists",
+  "false",
+  "from",
+  "full",
+  "group",
+  "having",
+  "ilike",
+  "in",
+  "inner",
+  "interval",
+  "is",
+  "join",
+  "left",
+  "like",
+  "limit",
+  "max",
+  "min",
+  "not",
+  "null",
+  "offset",
+  "on",
+  "or",
+  "order",
+  "outer",
+  "right",
+  "select",
+  "sum",
+  "then",
+  "true",
+  "union",
+  "when",
+  "where",
+]);
 
 const expandReferenceKeys = (value: string) => {
   const normalized = normalizeReferenceKey(value);
@@ -139,22 +194,155 @@ const expandReferenceKeys = (value: string) => {
   return Array.from(keys);
 };
 
-const validateSql = (sql: string) => {
-  const trimmed = sanitizeSql(sql);
+const buildActiveColumnLookup = (
+  referencedTables: string[],
+  schemaTables: Record<string, string[]>
+) => {
+  const activeColumns = new Map<string, string>();
+  const ambiguousColumns = new Set<string>();
+
+  for (const tableName of referencedTables) {
+    const columns = schemaTables[tableName] ?? [];
+
+    for (const columnName of columns) {
+      const lookupKey = columnName.toLowerCase();
+      const existingColumn = activeColumns.get(lookupKey);
+
+      if (existingColumn && existingColumn !== columnName) {
+        ambiguousColumns.add(lookupKey);
+        continue;
+      }
+
+      activeColumns.set(lookupKey, columnName);
+    }
+  }
+
+  return {
+    activeColumns,
+    ambiguousColumns,
+  };
+};
+
+const canonicalizeSqlIdentifiers = async (sql: string) => {
+  const metadata = await getSchemaMetadata();
+
+  let repairedSql = sanitizeSql(sql).replace(
+    /\b(from|join)\s+"?([A-Za-z][A-Za-z0-9_]*)"?/gi,
+    (segment, keyword: string, tableName: string) => {
+      const canonicalTableName =
+        metadata.tableNameByLowercase[tableName.toLowerCase()];
+
+      if (!canonicalTableName) {
+        return segment;
+      }
+
+      return `${keyword} "${canonicalTableName}"`;
+    }
+  );
+
+  const referencedTables = Array.from(
+    repairedSql.matchAll(/\b(?:from|join)\s+"?([A-Za-z][A-Za-z0-9_]*)"?/gi)
+  )
+    .map((match) => {
+      const matchedTableName = match[1];
+
+      if (!matchedTableName) {
+        return null;
+      }
+
+      return (
+        metadata.tableNameByLowercase[matchedTableName.toLowerCase()] ??
+        matchedTableName
+      );
+    })
+    .filter((tableName): tableName is string => Boolean(tableName))
+    .filter(
+      (tableName, index, tableNames) => tableNames.indexOf(tableName) === index
+    );
+
+  const { activeColumns, ambiguousColumns } = buildActiveColumnLookup(
+    referencedTables,
+    metadata.tables
+  );
+
+  repairedSql = repairedSql.replace(
+    /((?:"[^"]+"|[A-Za-z_][A-Za-z0-9_]*)\s*\.\s*)"?([A-Za-z_][A-Za-z0-9_]*)"?/g,
+    (segment, qualifier: string, columnName: string) => {
+      const lookupKey = columnName.toLowerCase();
+      const canonicalColumnName = activeColumns.get(lookupKey);
+
+      if (!canonicalColumnName || ambiguousColumns.has(lookupKey)) {
+        return segment;
+      }
+
+      return `${qualifier}"${canonicalColumnName}"`;
+    }
+  );
+
+  repairedSql = repairedSql.replace(
+    /\b([A-Za-z_][A-Za-z0-9_]*)\b/g,
+    (token: string, identifier: string, offset: number, fullSql: string) => {
+      const previousCharacter = fullSql[offset - 1] ?? "";
+      const nextCharacter = fullSql[offset + token.length] ?? "";
+      const lookupKey = identifier.toLowerCase();
+
+      if (
+        previousCharacter === '"' ||
+        nextCharacter === '"' ||
+        previousCharacter === "."
+      ) {
+        return token;
+      }
+
+      if (
+        SQL_KEYWORDS.has(lookupKey) ||
+        metadata.tableNameByLowercase[lookupKey] ||
+        ambiguousColumns.has(lookupKey)
+      ) {
+        return token;
+      }
+
+      const canonicalColumnName = activeColumns.get(lookupKey);
+
+      if (!canonicalColumnName) {
+        return token;
+      }
+
+      return `"${canonicalColumnName}"`;
+    }
+  );
+
+  return repairedSql;
+};
+
+const validateSql = async (sql: string) => {
+  const sanitized = sanitizeSql(sql);
+
+  if (sanitized.length === 0) {
+    throw new ApiError(
+      502,
+      "EMPTY_SQL_GENERATED",
+      "The model returned an empty SQL query."
+    );
+  }
+
+  if (sanitized.replace(/;\s*$/u, "").includes(";")) {
+    throw new ApiError(
+      502,
+      "MULTI_STATEMENT_SQL_REJECTED",
+      "The model generated SQL with semicolons or multiple statements."
+    );
+  }
+
+  const trimmed = await canonicalizeSqlIdentifiers(
+    sanitized.replace(/;\s*$/u, "")
+  );
 
   if (!/^select\b/i.test(trimmed)) {
     throw new ApiError(
       502,
       "UNSAFE_SQL_GENERATED",
       "The model generated SQL that was not a SELECT statement."
-    );
-  }
-
-  if (trimmed.includes(";")) {
-    throw new ApiError(
-      502,
-      "MULTI_STATEMENT_SQL_REJECTED",
-      "The model generated SQL with semicolons or multiple statements."
     );
   }
 
@@ -307,6 +495,40 @@ const extractNodeReferences = async (input: {
     }
   }
 
+  if (nodeReferences.size > 0) {
+    const adjacency = new Map<string, Set<string>>();
+
+    for (const edge of graph.edges) {
+      const sourceNeighbors = adjacency.get(edge.source) ?? new Set<string>();
+      sourceNeighbors.add(edge.target);
+      adjacency.set(edge.source, sourceNeighbors);
+
+      const targetNeighbors = adjacency.get(edge.target) ?? new Set<string>();
+      targetNeighbors.add(edge.source);
+      adjacency.set(edge.target, targetNeighbors);
+    }
+
+    for (const nodeId of Array.from(nodeReferences)) {
+      const neighbors = adjacency.get(nodeId);
+
+      if (!neighbors) {
+        continue;
+      }
+
+      for (const neighborId of neighbors) {
+        nodeReferences.add(neighborId);
+
+        if (nodeReferences.size >= 50) {
+          break;
+        }
+      }
+
+      if (nodeReferences.size >= 50) {
+        break;
+      }
+    }
+  }
+
   return Array.from(nodeReferences).slice(0, 50);
 };
 
@@ -324,6 +546,9 @@ const buildSqlMessages = async (input: {
     {
       role: "user",
       content: `
+Allowed tables:
+${ALLOWED_TABLES.map((tableName) => `- "${tableName}"`).join("\n")}
+
 Schema:
 ${schemaPrompt}
 
@@ -440,7 +665,7 @@ const buildFallbackAnswer = (input: {
             (typeof value === "string" || typeof value === "number")
         )
         .slice(0, 3)
-        .join(" • ")
+        .join(" - ")
     )
     .filter(Boolean)
     .join("; ");
@@ -481,7 +706,7 @@ const prepareQueryExecution = async (input: {
     };
   }
 
-  const safeSql = validateSql(parsedResponse.sql);
+  const safeSql = await validateSql(parsedResponse.sql);
 
   const startedAt = Date.now();
   let rows: Record<string, unknown>[];
