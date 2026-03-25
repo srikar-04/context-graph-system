@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: sap-o2c-server
+    env: node
+    rootDir: server
+    plan: starter
+    buildCommand: npm install && npm run db:generate && npm run db:migrate:deploy && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DATA_PATH
+        value: ./data
+      - key: GEMINI_MODEL
+        value: gemini-2.5-flash
+      - key: GEMINI_OPENAI_BASE_URL
+        value: https://generativelanguage.googleapis.com/v1beta/openai/
+      - key: DATABASE_URL
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: FRONTEND_ORIGIN
+        sync: false

@@ -198,7 +198,8 @@ textarea:focus-visible {
 
 .graph-shell__controls,
 .graph-shell__stats,
-.graph-shell__legend {
+.graph-shell__legend,
+.graph-shell__notice {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -221,6 +222,15 @@ textarea:focus-visible {
   border-bottom: 1px solid #f3f4f6;
 }
 
+.graph-shell__notice {
+  gap: 10px;
+  padding: 9px 14px 10px;
+  border-bottom: 1px solid #f5f7fb;
+  color: #8a5a00;
+  font-size: 0.76rem;
+  background: linear-gradient(180deg, rgba(255, 251, 235, 0.92), rgba(255, 255, 255, 0.98));
+}
+
 .graph-shell__legend-item {
   padding-block: 5px;
 }
@@ -229,6 +239,16 @@ textarea:focus-visible {
   width: 8px;
   height: 8px;
   border-radius: 50%;
+}
+
+.graph-shell__notice-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #f59e0b;
+  box-shadow:
+    0 0 0 4px rgba(245, 158, 11, 0.14),
+    0 0 18px rgba(245, 158, 11, 0.45);
 }
 
 .mini-button,
