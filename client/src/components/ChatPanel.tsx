@@ -79,27 +79,10 @@ export const ChatPanel = ({
   return (
     <aside className="chat-shell" aria-labelledby="chat-panel-title">
       <header className="chat-shell__header">
-        <div className="chat-shell__title">
-          <p className="surface-eyebrow">Chat</p>
-          <h2 id="chat-panel-title">Chat with graph</h2>
-        </div>
-
-        <div className="chat-shell__sessionbar">
-          <div className="chat-shell__sessions" role="tablist" aria-label="Chat sessions">
-            {sessions.map((session) => (
-              <button
-                key={session.id}
-                type="button"
-                role="tab"
-                aria-selected={session.id === sessionId}
-                className={`chat-shell__session${
-                  session.id === sessionId ? " chat-shell__session--active" : ""
-                }`}
-                onClick={() => void onSelectSession(session.id)}
-              >
-                {session.title}
-              </button>
-            ))}
+        <div className="chat-shell__header-top">
+          <div className="chat-shell__title">
+            <p className="surface-eyebrow">Chat</p>
+            <h2 id="chat-panel-title">Chat with graph</h2>
           </div>
 
           <button
@@ -111,6 +94,23 @@ export const ChatPanel = ({
           >
             +
           </button>
+        </div>
+
+        <div className="chat-shell__sessions" role="tablist" aria-label="Chat sessions">
+          {sessions.map((session) => (
+            <button
+              key={session.id}
+              type="button"
+              role="tab"
+              aria-selected={session.id === sessionId}
+              className={`chat-shell__session${
+                session.id === sessionId ? " chat-shell__session--active" : ""
+              }`}
+              onClick={() => void onSelectSession(session.id)}
+            >
+              {session.title}
+            </button>
+          ))}
         </div>
       </header>
 

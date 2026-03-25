@@ -26,39 +26,35 @@ const legendTypes: GraphNodeType[] = [
   "Payment",
 ];
 
-const clusterCenters: Record<GraphNodeType, { x: number; y: number }> = {
-  BusinessPartner: { x: -1120, y: -120 },
-  Plant: { x: -500, y: 520 },
-  Product: { x: -120, y: 520 },
-  SalesOrder: { x: -760, y: -200 },
-  SalesOrderItem: { x: -360, y: -110 },
-  ScheduleLine: { x: -80, y: -340 },
-  OutboundDelivery: { x: 130, y: 60 },
-  OutboundDeliveryItem: { x: 460, y: 180 },
-  BillingDocument: { x: 780, y: -20 },
-  BillingDocumentItem: { x: 1080, y: 120 },
-  JournalEntry: { x: 1400, y: -80 },
-  Payment: { x: 1700, y: 120 },
-};
-
-const clusterPhaseOffset: Record<GraphNodeType, number> = {
-  BusinessPartner: -0.18,
-  Plant: 0.82,
-  Product: 1.08,
-  SalesOrder: 0.05,
-  SalesOrderItem: 0.4,
-  ScheduleLine: 0.92,
-  OutboundDelivery: 1.42,
-  OutboundDeliveryItem: 1.78,
-  BillingDocument: 0.2,
-  BillingDocumentItem: 0.66,
-  JournalEntry: 1.08,
-  Payment: 1.54,
+const stageLayout: Record<
+  GraphNodeType,
+  {
+    x: number;
+    y: number;
+    maxRows: number;
+    rowGap: number;
+    columnGap: number;
+  }
+> = {
+  BusinessPartner: { x: -1380, y: -40, maxRows: 12, rowGap: 70, columnGap: 84 },
+  Plant: { x: -960, y: 520, maxRows: 12, rowGap: 64, columnGap: 78 },
+  Product: { x: -620, y: 500, maxRows: 18, rowGap: 40, columnGap: 52 },
+  SalesOrder: { x: -1040, y: -120, maxRows: 22, rowGap: 42, columnGap: 62 },
+  SalesOrderItem: { x: -760, y: -110, maxRows: 26, rowGap: 34, columnGap: 46 },
+  ScheduleLine: { x: -460, y: -160, maxRows: 28, rowGap: 30, columnGap: 38 },
+  OutboundDelivery: { x: -120, y: -20, maxRows: 20, rowGap: 38, columnGap: 54 },
+  OutboundDeliveryItem: { x: 180, y: 0, maxRows: 26, rowGap: 32, columnGap: 40 },
+  BillingDocument: { x: 520, y: 0, maxRows: 24, rowGap: 34, columnGap: 48 },
+  BillingDocumentItem: { x: 820, y: 10, maxRows: 28, rowGap: 30, columnGap: 36 },
+  JournalEntry: { x: 1140, y: -40, maxRows: 24, rowGap: 34, columnGap: 44 },
+  Payment: { x: 1440, y: 0, maxRows: 20, rowGap: 38, columnGap: 52 },
 };
 
 type PositionedGraphNode = GraphNode & {
   x: number;
   y: number;
+  fx: number;
+  fy: number;
 };
 
 const resolveNodeId = (value: unknown) => {
@@ -74,9 +70,9 @@ const resolveNodeId = (value: unknown) => {
   return "";
 };
 
-const buildClusteredGraph = (graph: GraphData) => {
-  const positionedNodes: PositionedGraphNode[] = [];
+const buildStageLayoutGraph = (graph: GraphData) => {
   const nodesByType = new Map<GraphNodeType, GraphNode[]>();
+  const positionedNodes: PositionedGraphNode[] = [];
 
   for (const node of graph.nodes) {
     const typedNodes = nodesByType.get(node.type) ?? [];
@@ -84,24 +80,29 @@ const buildClusteredGraph = (graph: GraphData) => {
     nodesByType.set(node.type, typedNodes);
   }
 
-  for (const type of Object.keys(clusterCenters) as GraphNodeType[]) {
-    const typedNodes = nodesByType.get(type) ?? [];
-    const center = clusterCenters[type];
-    const phaseOffset = clusterPhaseOffset[type];
+  for (const type of Object.keys(stageLayout) as GraphNodeType[]) {
+    const typedNodes = (nodesByType.get(type) ?? []).slice().sort((left, right) =>
+      left.id.localeCompare(right.id)
+    );
+    const config = stageLayout[type];
 
     typedNodes.forEach((node, index) => {
-      const ring = Math.floor(index / 22);
-      const ringStartIndex = ring * 22;
-      const ringIndex = index - ringStartIndex;
-      const pointsOnRing = Math.max(10, 16 + ring * 8);
-      const angle =
-        (ringIndex / pointsOnRing) * Math.PI * 2 + phaseOffset + ring * 0.14;
-      const radius = 34 + ring * 46;
+      const columnIndex = Math.floor(index / config.maxRows);
+      const rowIndex = index % config.maxRows;
+      const rowsInColumn = Math.min(
+        config.maxRows,
+        typedNodes.length - columnIndex * config.maxRows
+      );
+      const columnHeight = (rowsInColumn - 1) * config.rowGap;
+      const x = config.x + columnIndex * config.columnGap;
+      const y = config.y - columnHeight / 2 + rowIndex * config.rowGap;
 
       positionedNodes.push({
         ...node,
-        x: center.x + Math.cos(angle) * radius,
-        y: center.y + Math.sin(angle) * radius,
+        x,
+        y,
+        fx: x,
+        fy: y,
       });
     });
   }
@@ -149,20 +150,19 @@ export const GraphPanel = ({
     [highlightedNodeIds]
   );
 
-  const forceGraphData = useMemo(() => buildClusteredGraph(graph), [graph]);
+  const forceGraphData = useMemo(() => buildStageLayoutGraph(graph), [graph]);
 
   const focusGraph = () => {
     if (!graphRef.current?.zoomToFit || forceGraphData.nodes.length === 0) {
       return;
     }
 
-    graphRef.current.zoomToFit(720, 124);
+    graphRef.current.zoomToFit(780, 96);
 
     window.setTimeout(() => {
       const currentZoom = graphRef.current?.zoom?.() ?? 1;
-      graphRef.current?.zoom?.(currentZoom * 1.08, 240);
-      graphRef.current?.centerAt?.(320, 40, 240);
-    }, 140);
+      graphRef.current?.zoom?.(currentZoom * 1.06, 180);
+    }, 120);
   };
 
   useEffect(() => {
@@ -177,10 +177,10 @@ export const GraphPanel = ({
         hasInitializedViewRef.current = true;
         focusGraph();
       }
-    }, 90);
+    }, 80);
 
     return () => window.clearTimeout(focusTimeout);
-  }, [forceGraphData.nodes.length]);
+  }, [forceGraphData.nodes.length, forceGraphData.links.length]);
 
   return (
     <section className="graph-shell" aria-labelledby="graph-panel-title">
@@ -270,16 +270,16 @@ export const GraphPanel = ({
               const targetId = resolveNodeId((link as { target?: unknown }).target);
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? "rgba(79, 124, 255, 0.98)"
-                : "rgba(125, 167, 244, 0.72)";
+                ? "rgba(79, 124, 255, 0.88)"
+                : "rgba(125, 167, 244, 0.32)";
             }}
             linkWidth={(link) => {
               const sourceId = resolveNodeId((link as { source?: unknown }).source);
               const targetId = resolveNodeId((link as { target?: unknown }).target);
 
               return highlightedIds.has(sourceId) || highlightedIds.has(targetId)
-                ? 3.2
-                : 1.55;
+                ? 2.4
+                : 0.9;
             }}
             nodeCanvasObject={(node, context, globalScale) => {
               const graphNode = node as GraphNode;
@@ -289,11 +289,11 @@ export const GraphPanel = ({
               const isSelected = selectedNodeId === graphNode.id;
               const isHovered = hoveredNodeId === graphNode.id;
               const shouldShowLabel = isSelected || isHovered;
-              const nodeRadius = isSelected ? 4.8 : isHighlighted ? 3.8 : 2.6;
+              const nodeRadius = isSelected ? 4.8 : isHighlighted ? 3.8 : 2.3;
 
               if (isHighlighted || isSelected) {
                 context.beginPath();
-                context.arc(x, y, nodeRadius + 3.4, 0, 2 * Math.PI, false);
+                context.arc(x, y, nodeRadius + 2.8, 0, 2 * Math.PI, false);
                 context.fillStyle = isSelected
                   ? "rgba(17, 24, 39, 0.12)"
                   : "rgba(85, 130, 255, 0.14)";

@@ -607,3 +607,26 @@
 ### Remaining limitation
 
 - I still cannot do a real browser click-through from this terminal alone, so this pass is code- and build-verified rather than visually browser-smoke-tested end to end.
+
+## Client Layout Pass - Stage-Based Graph Map and Safer Chat Shell
+
+### Plan improvements applied
+
+- Updated `plan.md` so the frontend graph strategy now records a stage-based initial layout rather than the previous ring-style clustering.
+
+### What changed in this pass
+
+- Reworked `client/src/components/GraphPanel.tsx` again so the graph no longer starts as concentric clusters.
+  Nodes are now placed in stable O2C lanes with fixed stage-based positions, which is intended to make links render immediately on first load and reduce the half-canvas / off-center behavior caused by the previous layout strategy.
+- Reworked `client/src/components/ChatPanel.tsx` so the chat header is a simpler two-row structure:
+  title plus `+` action on the first row,
+  recent-session strip on the second row.
+  This is more robust than the older wrapped flex session bar.
+- Tightened `client/src/index.css` so the right panel layout is less brittle:
+  the workspace gives the chat panel a stronger minimum width,
+  the session row is isolated from the title row,
+  and the chat feed now uses a straightforward flex column rather than the previous grid-based message stack.
+
+### Verification completed
+
+- `client`: `npm run build`

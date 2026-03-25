@@ -140,7 +140,7 @@ textarea:focus-visible {
 
 .workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1.9fr) minmax(300px, 0.64fr);
+  grid-template-columns: minmax(0, 1.68fr) minmax(360px, 0.92fr);
   gap: 16px;
   height: calc(100vh - 86px);
   min-height: 680px;
@@ -159,6 +159,7 @@ textarea:focus-visible {
 .chat-shell {
   min-width: 0;
   min-height: 0;
+  height: 100%;
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: var(--radius-xl);
@@ -197,8 +198,7 @@ textarea:focus-visible {
 
 .graph-shell__controls,
 .graph-shell__stats,
-.graph-shell__legend,
-.chat-shell__sessionbar {
+.graph-shell__legend {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -276,21 +276,28 @@ textarea:focus-visible {
   grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
-.chat-shell__sessionbar {
-  min-width: 0;
-  flex: 1 1 100%;
-  width: 100%;
+.chat-shell__header {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-content: start;
+  gap: 10px;
+}
+
+.chat-shell__header-top {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
-  overflow: hidden;
+  min-width: 0;
+  gap: 12px;
 }
 
 .chat-shell__sessions {
   display: flex;
   gap: 8px;
-  flex: 1 1 auto;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 2px;
   padding-right: 2px;
   scrollbar-width: none;
@@ -301,6 +308,7 @@ textarea:focus-visible {
 }
 
 .chat-shell__session {
+  flex: 0 0 auto;
   max-width: 180px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -363,8 +371,8 @@ textarea:focus-visible {
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
-  display: grid;
-  align-content: start;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
   padding: 8px 14px 12px;
   background: linear-gradient(180deg, #ffffff 0%, #fcfcfd 100%);
@@ -677,7 +685,7 @@ textarea:focus-visible {
   }
 
   .graph-shell__controls,
-  .chat-shell__sessionbar,
+  .chat-shell__header-top,
   .chat-composer__row {
     grid-template-columns: 1fr;
     flex-direction: column;
