@@ -474,3 +474,66 @@
 ### Known limitation after this step
 
 - I did not perform a real browser smoke test inside this terminal session, so the client is build-verified but not visually click-tested in a browser window from here.
+
+## UI, Graph, and Chat Refinement Pass
+
+### Plan improvements applied
+
+- Updated `plan.md` so the durable architecture now reflects:
+  the streaming chat endpoint,
+  the session-list endpoint and title behavior,
+  the second grounded answer-generation pass after SQL execution,
+  stronger node-reference extraction,
+  and the refined frontend interaction model for the graph and chat panels.
+
+### What changed in this pass
+
+- Reworked the frontend visual system to be lighter and more minimal:
+  smaller typography,
+  smaller controls,
+  reduced visual bloat,
+  a more Vercel-like light surface treatment.
+- Reworked the graph panel so it now:
+  uses a restrained blue/rose palette,
+  renders smaller nodes with more visible edges,
+  increases graph spacing via stronger force configuration,
+  recenters and slightly zooms in on the initial settled view,
+  includes a compact `Collapse` reset control,
+  and uses a more compact detail drawer with a sticky header and key-value rows.
+- Reworked the chat panel so it now:
+  removes the old explanatory clutter,
+  uses a compact auto-expanding composer,
+  shrinks the chrome around the message feed,
+  replaces the old session button with a `+` action,
+  and adds a horizontal session-history strip with human-readable titles.
+- Reworked message rendering so long assistant outputs are now clamped by default with a `Show more` control instead of stretching the entire page.
+
+### Backend changes in this pass
+
+- Added `GET /api/query/sessions` to expose recent sessions with titles derived from the first user message.
+- Added `POST /api/query/chat/stream` to stream newline-delimited JSON events back to the client.
+- Upgraded the query engine so it now:
+  loads conversation history before saving the new user message,
+  runs a second grounded LLM pass to explain verified SQL results in business language,
+  sanitizes model SQL more defensively before validation,
+  and extracts node references from result rows plus SQL/message literals for stronger highlighting.
+- Added text-generation and streamed text-generation helpers on top of the existing Gemini OpenAI-compatible transport.
+
+### Verification completed
+
+- `server`: `npm run build`
+- `client`: `npm run build`
+- Ran a live backend smoke test against the real database and Gemini API that verified:
+  `POST /api/query/session`,
+  `GET /api/query/sessions`,
+  `POST /api/query/chat/stream`
+  all worked together.
+- Verified the streaming route emitted:
+  a `meta` event with SQL, node references, and execution time,
+  multiple `chunk` events,
+  and a final `done` event.
+- Verified the streaming happy-path query:
+  `Show billing documents for customer 320000083`
+  returned non-zero node references and a relational answer rather than dumping a raw row array.
+- Verified session titles are now human-readable, for example:
+  `Find the journal entry linked to billing document 91150...`

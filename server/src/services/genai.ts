@@ -70,3 +70,64 @@ export const generateJsonResponse = async (
 
   return content.trim();
 };
+
+export const generateTextResponse = async (
+  messages: ChatCompletionMessageParam[]
+) => {
+  const openai = getClient();
+  const response = await openai.chat.completions.create({
+    model,
+    messages,
+    temperature: 0.2,
+  });
+
+  const content = response.choices[0]?.message?.content;
+
+  if (!content) {
+    throw new ApiError(
+      502,
+      "MODEL_RESPONSE_EMPTY",
+      "The model returned an empty response."
+    );
+  }
+
+  return content.trim();
+};
+
+export const streamTextResponse = async (
+  messages: ChatCompletionMessageParam[],
+  onChunk: (chunk: string) => void
+) => {
+  const openai = getClient();
+  const stream = await openai.chat.completions.create({
+    model,
+    messages,
+    temperature: 0.2,
+    stream: true,
+  });
+
+  let content = "";
+
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+
+    if (!delta) {
+      continue;
+    }
+
+    content += delta;
+    onChunk(delta);
+  }
+
+  const trimmedContent = content.trim();
+
+  if (!trimmedContent) {
+    throw new ApiError(
+      502,
+      "MODEL_RESPONSE_EMPTY",
+      "The model returned an empty streamed response."
+    );
+  }
+
+  return trimmedContent;
+};

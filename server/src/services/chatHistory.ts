@@ -2,6 +2,19 @@ import { prisma } from "../lib/prisma.js";
 import { ApiError } from "../utils/apiError.js";
 
 const HISTORY_LIMIT = 20;
+const SESSION_LIST_LIMIT = 12;
+
+const createSessionTitle = (content: string) => {
+  const normalized = content.replace(/\s+/g, " ").trim();
+
+  if (!normalized) {
+    return "New conversation";
+  }
+
+  return normalized.length > 56
+    ? `${normalized.slice(0, 55).trimEnd()}...`
+    : normalized;
+};
 
 export const createChatSession = async () => {
   return prisma.chatSession.create({
@@ -46,6 +59,31 @@ export const getRecentChatMessages = async (sessionId: string) => {
   });
 
   return messages.reverse();
+};
+
+export const listChatSessions = async () => {
+  const sessions = await prisma.chatSession.findMany({
+    orderBy: { updatedAt: "desc" },
+    take: SESSION_LIST_LIMIT,
+    include: {
+      messages: {
+        where: { role: "user" },
+        orderBy: { createdAt: "asc" },
+        take: 1,
+      },
+    },
+  });
+
+  return sessions.map((session) => {
+    const firstUserMessage = session.messages[0];
+
+    return {
+      id: session.id,
+      title: createSessionTitle(firstUserMessage?.content ?? ""),
+      updatedAt: session.updatedAt,
+      createdAt: session.createdAt,
+    };
+  });
 };
 
 export const saveChatMessage = async (input: {

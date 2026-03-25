@@ -688,7 +688,7 @@ server/
 
 **Query Routes (`/api/query`):**
 
-`POST /api/query/chat` is the main LLM endpoint. It accepts `{ sessionId: string, message: string }` and returns `{ answer: string, sql: string, nodesReferenced: string[], executionTimeMs: number }`. `POST /api/query/session` creates a new chat session and returns `{ sessionId: string }`. `GET /api/query/history/:sessionId` returns all messages for a given session.
+`POST /api/query/chat` is the non-streaming LLM endpoint. It accepts `{ sessionId: string, message: string }` and returns `{ answer: string, sql: string, nodesReferenced: string[], executionTimeMs: number }`. `POST /api/query/chat/stream` is the streaming variant used by the frontend and returns newline-delimited JSON events (`meta`, `chunk`, `done`). `POST /api/query/session` creates a new chat session and returns `{ sessionId: string }`. `GET /api/query/history/:sessionId` returns all messages for a given session. `GET /api/query/sessions` returns recent sessions for the session switcher, with human-readable titles derived from each session's first user message rather than raw database IDs.
 
 ### Middleware Stack (Applied in This Order)
 
@@ -730,9 +730,11 @@ This is the most complex part of the system. When a user types a question, the f
 
 **Stage 7 — Execute the SQL.** The validated SQL is executed using Prisma's `$queryRaw` method, which runs arbitrary SQL and returns typed results. This is wrapped in a try/catch — if the SQL is syntactically invalid or references a non-existent table, the error is caught and a safe error message is returned.
 
-**Stage 8 — Extract node references.** The SQL result rows are scanned for values that look like SAP document numbers (billing document numbers, sales order numbers, partner IDs). These are returned as the `nodesReferenced` array so the frontend can highlight those specific nodes in the graph.
+**Stage 8 — Extract node references.** The SQL result rows are scanned for values that look like SAP document numbers (billing document numbers, sales order numbers, partner IDs). In practice, the extractor should also consider literals from the SQL filter itself and the user's message, because a useful highlight set often includes both the returned entities and the entity the question was about. These are returned as the `nodesReferenced` array so the frontend can highlight those specific nodes and their connecting edges in the graph.
 
-**Stage 9 — Format and save.** The explanation template from the LLM is filled in with the actual query results. Both the user's message and the assistant's response are saved to the `ChatMessage` table in the database. The final response is returned to the frontend.
+**Stage 9 — Generate the user-facing answer.** After SQL executes, the system should not dump the raw row array into the chat response. Instead, it should make a second grounded LLM call that receives the verified SQL result preview and produces a concise business explanation focused on entity relationships, counts, and notable identifiers.
+
+**Stage 10 — Stream and save.** In the richer frontend experience, the final answer is streamed to the client for better perceived responsiveness. Both the user's message and the assistant's final response are saved to the `ChatMessage` table in the database once the stream completes.
 
 ### The System Prompt (Full Design)
 
@@ -787,23 +789,25 @@ Because the app is being created from an empty `client/` workspace rather than e
 
 ### Layout
 
-The frontend is a single-page React application with a two-panel layout. The left panel occupies roughly 65% of the screen width and renders the interactive graph. The right panel occupies 35% and renders the chat interface. On mobile screens, these stack vertically.
+The frontend is a single-page React application with a two-panel layout. The left panel occupies roughly 65% of the screen width and renders the interactive graph. The right panel occupies 35% and renders the chat interface. On mobile screens, these stack vertically. The visual treatment should stay minimal and product-like: small typography, compact controls, restrained borders, and a light neutral palette closer to Vercel-style tooling UIs than to a heavy dashboard.
 
 ### Graph Panel
 
-The graph panel uses `react-force-graph-2d`. On mount, it calls `GET /api/graph` and stores the result in React state. The `ForceGraph2D` component takes `graphData={{ nodes, edges }}` as a prop and handles all the physics simulation (nodes attract/repel each other until they reach a stable layout) internally.
+The graph panel uses `react-force-graph-2d`. On mount, it calls `GET /api/graph` and stores the result in React state. The frontend adapts the backend `{ nodes, edges }` payload into the library's `{ nodes, links }` shape before rendering. The `ForceGraph2D` component then handles the physics simulation internally.
 
-Node colors are determined by entity type — each type gets a distinct color (e.g., SalesOrder = blue, Customer = green, BillingDocument = orange, Payment = teal). This color coding makes it visually obvious which kind of entity each dot represents.
+Node colors should stay inside a restrained palette that reads cleanly in a large graph at a glance — primarily soft blues plus a small rose accent family for contrast. Nodes should be visually small, edges should be more visible than the current defaults, and the force layout should use longer link distances / stronger repulsion so the graph breathes in a larger canvas.
 
-When a node is clicked, a detail panel slides in (either as an overlay or alongside the graph) showing all fields stored in `node.data`. This uses the `onNodeClick` callback provided by `react-force-graph-2d`.
+When a node is clicked, a detail panel slides in showing all fields stored in `node.data`. The drawer header should stay sticky while the metadata scrolls, the dismiss action should be a compact `x` control, and the metadata itself should be presented as compact key-value rows rather than loose heading/body cards.
 
-When the chat interface returns `nodesReferenced`, those node IDs are stored in React state and the `nodeCanvasObject` render function draws a highlighted ring around those specific nodes. This creates a direct visual link between a chat answer and the relevant entities on the graph.
+On first load, the graph should settle centered inside the available canvas and then zoom in slightly (around 10%) so the user starts from a sensible overview instead of a corner drift. A compact reset / collapse control should always return the user to that initial fitted view if they get lost while panning through the large canvas.
+
+When the chat interface returns `nodesReferenced`, those node IDs are stored in React state and the `nodeCanvasObject` render function draws a highlighted ring around those specific nodes while connected edges are emphasized too. This creates a direct visual link between a chat answer and the relevant entities on the graph.
 
 ### Chat Panel
 
-The chat panel maintains a local `messages` array in React state. Each item has a `role` (`"user"` or `"assistant"`) and `content` (the text). On send, the user's message is immediately added to the local state (for instant feedback), and a `POST /api/query/chat` request is fired. When the response arrives, the assistant's message is added to the state. If `nodesReferenced` is non-empty in the response, the node highlight state in the graph panel is updated.
+The chat panel maintains a local `messages` array in React state. Each item has a `role` (`"user"` or `"assistant"`) and `content` (the text). On send, the user's message is immediately added to the local state (for instant feedback), and a `POST /api/query/chat/stream` request is fired. The assistant response should stream in incrementally like a modern LLM chat interface instead of appearing all at once. If `nodesReferenced` is non-empty in the streamed metadata, the node highlight state in the graph panel is updated.
 
-A `sessionId` is created when the frontend first loads (by calling `POST /api/query/session`) and stored in React state. Every chat message is sent with this `sessionId` so the backend can maintain conversation continuity.
+A `sessionId` is created when the frontend first loads (by calling `POST /api/query/session`) and stored in React state. Every chat message is sent with this `sessionId` so the backend can maintain conversation continuity. The chat header should also expose a compact session-history strip, populated from `GET /api/query/sessions`, so users can jump back into recent conversations without seeing raw session IDs.
 
 ---
 

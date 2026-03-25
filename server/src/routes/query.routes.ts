@@ -3,8 +3,12 @@ import { Router } from "express";
 import { createRateLimiter } from "../middleware/rateLimiter.js";
 import { validateBody } from "../middleware/validator.js";
 import { chatRequestSchema } from "../schemas/query.schema.js";
-import { createChatSession, getChatMessages } from "../services/chatHistory.js";
-import { answerQuery } from "../services/queryEngine.js";
+import {
+  createChatSession,
+  getChatMessages,
+  listChatSessions,
+} from "../services/chatHistory.js";
+import { answerQuery, streamAnswerQuery } from "../services/queryEngine.js";
 import { asyncHandler } from "../utils/asyncHandler.js";
 import { ApiError } from "../utils/apiError.js";
 
@@ -14,6 +18,17 @@ const chatRateLimiter = createRateLimiter({
 });
 
 export const queryRouter = Router();
+
+queryRouter.get(
+  "/sessions",
+  asyncHandler(async (_req, res) => {
+    const sessions = await listChatSessions();
+
+    res.json({
+      sessions,
+    });
+  })
+);
 
 queryRouter.post(
   "/session",
@@ -59,4 +74,55 @@ queryRouter.post(
 
     res.json(response);
   })
+);
+
+queryRouter.post(
+  "/chat/stream",
+  chatRateLimiter,
+  validateBody(chatRequestSchema),
+  async (req, res) => {
+    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.setHeader("Connection", "keep-alive");
+    res.flushHeaders?.();
+
+    const writeEvent = (payload: Record<string, unknown>) => {
+      res.write(`${JSON.stringify(payload)}\n`);
+    };
+
+    try {
+      const response = await streamAnswerQuery(req.body, {
+        onMeta: (meta) => {
+          writeEvent({
+            type: "meta",
+            ...meta,
+          });
+        },
+        onChunk: (chunk) => {
+          writeEvent({
+            type: "chunk",
+            content: chunk,
+          });
+        },
+      });
+
+      writeEvent({
+        type: "done",
+        ...response,
+      });
+    } catch (error) {
+      const apiError =
+        error instanceof ApiError
+          ? error
+          : new ApiError(500, "INTERNAL_ERROR", "Internal server error.");
+
+      writeEvent({
+        type: "error",
+        error: apiError.message,
+        code: apiError.code,
+      });
+    } finally {
+      res.end();
+    }
+  }
 );
