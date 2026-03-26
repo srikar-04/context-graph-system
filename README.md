@@ -6,7 +6,7 @@ An interactive graph interface and natural-language query system built on top of
 
 ## Table of Contents
 
-1. [What This Is](#1-what-this-is)
+1. [Project Overview](#1-what-this-is)
 2. [System Architecture](#2-system-architecture)
 3. [Database Choice & Rationale](#3-database-choice--rationale)
 4. [Graph Model Design](#4-graph-model-design)
@@ -19,7 +19,7 @@ An interactive graph interface and natural-language query system built on top of
 
 ---
 
-## 1. What This Is
+## 1. Project Overview
 
 SAP ERP data is spread across 19+ entity types — sales orders, deliveries, billing documents, journal entries, payments, and more. These entities reference each other through SAP document numbers, but there is no built-in way to see those connections or ask questions across them without deep SAP knowledge and manual SQL joins.
 
