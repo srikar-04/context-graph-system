@@ -1017,6 +1017,10 @@ Because the frontend now uses a fixed stage-based graph layout instead of a free
 
 Visible nodes may remain visually small, but the graph must provide a larger invisible pointer area so users can still click transactional entities reliably and open metadata without precision issues.
 
+### Compact-Screen Interaction Model
+
+On tablet and mobile widths, the graph should remain the primary workspace and the chat should open as an overlay panel with its own internal scroller instead of stacking below the graph. This avoids touch-scroll conflicts where the graph captures gestures and makes the overall page feel stuck.
+
 ### Streamed LLM Error Visibility
 
 The `/api/query/chat/stream` route must always log the original thrown error before converting it into a client-facing API message. Otherwise repeated provider or SQL-generation failures become impossible to debug from the backend logs.

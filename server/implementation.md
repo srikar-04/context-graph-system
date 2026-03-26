@@ -694,6 +694,23 @@
 ### Verification completed
 
 - Documentation-only change; no runtime build changes were required.
+
+## Responsive Shell Pass - Chat Loading State and Compact Chat Drawer
+
+### What changed in this pass
+
+- Updated `client/src/components/ChatPanel.tsx` so the chat area no longer appears blank while bootstrapping.
+  It now shows a dedicated loading state while the client fetches the latest session and chat history from the backend.
+- Updated `client/src/components/GraphPanel.tsx` and `client/src/index.css` so the first-load edge warning now lives inside the graph surface itself.
+  This avoids the previous layout clipping issue and keeps the warning visible on desktop as well as mobile.
+- Reworked `client/src/App.tsx` and `client/src/index.css` for tablet and mobile layouts.
+  Instead of stacking the graph and chat vertically, the graph now remains the primary full-screen workspace and the chat opens as a right-side slide-over panel with its own scroller.
+- Added a compact-layout responsive state in `client/src/App.tsx` so desktop keeps the side-by-side view while smaller screens use the overlay chat panel.
+- Added a backdrop and close control for the compact chat drawer so touch interaction is more predictable and the graph no longer traps the whole page scroll in stacked mode.
+
+### Verification completed
+
+- `client`: `npm run build`
 - Verified the client TypeScript build remains clean after the graph-panel rewrite and session bootstrap change.
 
 ### Remaining limitation
