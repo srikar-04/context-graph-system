@@ -311,14 +311,14 @@ export const GraphPanel = ({
         ))}
       </div>
 
-      {!isLoading && !error && (
-        <div className="graph-shell__notice" role="note" aria-live="polite">
-          <span className="graph-shell__notice-dot" aria-hidden="true" />
-          If edges are missing on first load, refresh the graph once.
-        </div>
-      )}
-
       <div ref={surfaceRef} className="graph-surface">
+        {!isLoading && !error && (
+          <div className="graph-shell__notice" role="note" aria-live="polite">
+            <span className="graph-shell__notice-dot" aria-hidden="true" />
+            If edges are missing on first load, refresh the graph once.
+          </div>
+        )}
+
         {isLoading && (
           <div className="empty-state" role="status">
             <h3>Loading graph...</h3>

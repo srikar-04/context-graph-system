@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 import { ChatPanel } from "./components/ChatPanel";
 import { GraphPanel } from "./components/GraphPanel";
 import { useChat } from "./hooks/useChat";
@@ -6,6 +8,14 @@ import { useGraph } from "./hooks/useGraph";
 const numberFormatter = new Intl.NumberFormat("en-IN");
 
 function App() {
+  const [isCompactLayout, setIsCompactLayout] = useState(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+
+    return window.matchMedia("(max-width: 1180px)").matches;
+  });
+  const [isChatPanelOpen, setIsChatPanelOpen] = useState(false);
   const {
     graph,
     isLoading,
@@ -39,6 +49,29 @@ function App() {
       setHighlightedNodeIds(response.nodesReferenced);
     },
   });
+
+  useEffect(() => {
+    if (typeof window === "undefined") {
+      return;
+    }
+
+    const mediaQuery = window.matchMedia("(max-width: 1180px)");
+    const updateCompactLayout = () => {
+      const isCompact = mediaQuery.matches;
+      setIsCompactLayout(isCompact);
+
+      if (!isCompact) {
+        setIsChatPanelOpen(false);
+      }
+    };
+
+    updateCompactLayout();
+    mediaQuery.addEventListener("change", updateCompactLayout);
+
+    return () => {
+      mediaQuery.removeEventListener("change", updateCompactLayout);
+    };
+  }, []);
 
   return (
     <div className="app-shell">
@@ -76,6 +109,25 @@ function App() {
           onClearHighlights={() => setHighlightedNodeIds([])}
         />
 
+        <button
+          type="button"
+          className="mini-button mini-button--solid workspace__chat-toggle"
+          aria-controls="chat-panel-title"
+          aria-expanded={isChatPanelOpen}
+          onClick={() => setIsChatPanelOpen(true)}
+        >
+          Open chat
+        </button>
+
+        <button
+          type="button"
+          className={`workspace__backdrop${
+            isChatPanelOpen ? " workspace__backdrop--visible" : ""
+          }`}
+          aria-label="Close chat panel"
+          onClick={() => setIsChatPanelOpen(false)}
+        />
+
         <ChatPanel
           sessionId={sessionId}
           sessions={sessions}
@@ -83,6 +135,9 @@ function App() {
           isBootstrapping={isBootstrapping}
           isSending={isSending}
           error={chatError}
+          isOverlay={isCompactLayout}
+          isOpen={isCompactLayout ? isChatPanelOpen : true}
+          onClose={() => setIsChatPanelOpen(false)}
           onSendMessage={sendMessage}
           onStartNewSession={async () => {
             setHighlightedNodeIds([]);

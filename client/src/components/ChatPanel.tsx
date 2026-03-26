@@ -10,6 +10,9 @@ type ChatPanelProps = {
   isBootstrapping: boolean;
   isSending: boolean;
   error: string | null;
+  isOverlay: boolean;
+  isOpen: boolean;
+  onClose: () => void;
   onSendMessage: (message: string) => Promise<void>;
   onStartNewSession: () => Promise<void>;
   onSelectSession: (sessionId: string) => Promise<void>;
@@ -22,6 +25,9 @@ export const ChatPanel = ({
   isBootstrapping,
   isSending,
   error,
+  isOverlay,
+  isOpen,
+  onClose,
   onSendMessage,
   onStartNewSession,
   onSelectSession,
@@ -77,7 +83,13 @@ export const ChatPanel = ({
   };
 
   return (
-    <aside className="chat-shell" aria-labelledby="chat-panel-title">
+    <aside
+      className={`chat-shell${isOverlay ? " chat-shell--overlay" : ""}${
+        isOpen ? " chat-shell--open" : ""
+      }`}
+      aria-labelledby="chat-panel-title"
+      aria-hidden={isOverlay && !isOpen}
+    >
       <header className="chat-shell__header">
         <div className="chat-shell__header-top">
           <div className="chat-shell__title">
@@ -85,15 +97,28 @@ export const ChatPanel = ({
             <h2 id="chat-panel-title">Chat with graph</h2>
           </div>
 
-          <button
-            type="button"
-            className="icon-button"
-            aria-label="Start a new session"
-            onClick={() => void onStartNewSession()}
-            disabled={isBootstrapping || isSending}
-          >
-            +
-          </button>
+          <div className="chat-shell__header-actions">
+            <button
+              type="button"
+              className="icon-button"
+              aria-label="Start a new session"
+              onClick={() => void onStartNewSession()}
+              disabled={isBootstrapping || isSending}
+            >
+              +
+            </button>
+
+            {isOverlay && (
+              <button
+                type="button"
+                className="icon-button"
+                aria-label="Close chat"
+                onClick={onClose}
+              >
+                x
+              </button>
+            )}
+          </div>
         </div>
 
         <div className="chat-shell__sessions" role="tablist" aria-label="Chat sessions">
@@ -115,6 +140,13 @@ export const ChatPanel = ({
       </header>
 
       <div className="chat-feed" role="log" aria-live="polite" aria-relevant="additions">
+        {isBootstrapping && (
+          <div className="chat-feed__status" role="status">
+            <h3>Loading chat...</h3>
+            <p>Fetching the latest conversation and session details from the backend.</p>
+          </div>
+        )}
+
         {messages.length === 0 && !isBootstrapping && (
           <div className="chat-feed__placeholder">
             Ask about a customer, invoice, delivery, payment, or journal entry.
