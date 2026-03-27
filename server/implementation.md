@@ -631,6 +631,35 @@
 
 - I could not run a live DB-backed smoke test for the exact broad-query examples from this terminal in this pass, so the fix is build-verified and code-verified, but not runtime-verified here against the current Neon data.
 
+## Clarification Continuation Pass - History-Aware Product/Delivery Query Planning
+
+### Plan improvements applied
+
+- Updated `plan.md` so clarification replies are now explicitly treated as continuations that must be resolved against recent session history.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` so `buildQueryPlan(...)` now receives the recent chat history before it decides between clarification, deterministic SQL, or free-form model SQL.
+- Added a history-aware clarification resolver for the broad product-to-delivery relation workflow.
+  This means a follow-up like `Use delivery-document pairs and treat <= 10 as low` is no longer treated as a brand-new ambiguous message.
+  Instead, the backend recognizes that it is answering the immediately preceding clarification prompt and continues the original business intent deterministically.
+- Replaced the old one-size-fits-all product-to-delivery SQL template with a parameterized deterministic builder.
+  It now supports:
+  delivery-document pair counting,
+  delivery-item link counting,
+  and optional low-count thresholds that control whether detailed rows are returned alongside the total count.
+- This directly addresses the repeated `column t1.material does not exist` failure.
+  The previous error path happened because the narrowed clarification reply no longer mentioned `product` or `delivery`, so it fell back to the model and the model invented brittle SQL.
+  The backend now bypasses that failure mode for this workflow by generating the SQL itself from the clarified intent.
+
+### Verification completed
+
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- I could not run the exact live Neon-backed query from this terminal in this pass, so the fix is build-verified and code-verified, but not runtime-verified here against the current database contents.
+
 ## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
 
 ### Plan improvements applied

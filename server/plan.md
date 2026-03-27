@@ -1047,6 +1047,8 @@ When SQL results contain aggregate values from PostgreSQL, the answer-building p
 
 When a broad business question is underspecified in a way that materially changes the SQL, the backend should ask a narrowing follow-up question instead of forcing text-to-SQL generation. A good example is a product-to-delivery relation question that asks to list details only when the count is "low" without defining what "low" means, or without clarifying whether the count should use document pairs or item-level links.
 
+The follow-up answer to that clarification must not be treated as a brand-new standalone message. The query planner should resolve the narrowing reply against the recent chat history so a response like "Use delivery-document pairs and treat <= 10 as low" continues the original business question instead of falling back to free-form model SQL generation.
+
 ### Identifier-Scoped Highlighting For Broad Summary Answers
 
 For broad summary or exception-analysis queries, graph highlighting should index only identifier-like fields from result rows and node metadata. It should not match every scalar value in the payload, because status flags, counts, or shared customer ids can cause visually noisy highlights that do not reflect the true focus of the answer.

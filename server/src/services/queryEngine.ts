@@ -50,6 +50,13 @@ type QueryPlan = {
   clarification: string | null;
 };
 
+type RecentChatMessage = Awaited<
+  ReturnType<typeof getRecentChatMessages>
+>[number];
+type ProductDeliveryRelationMode =
+  | "delivery_document_pairs"
+  | "delivery_item_links";
+
 type PreparedQueryResult =
   | {
       kind: "clarification";
@@ -340,6 +347,85 @@ const isBillingFlowTraceQuery = (message: string) =>
     message
   );
 
+const isProductDeliveryClarificationPrompt = (message: string) =>
+  /product-to-delivery/i.test(message) && /low relation count/i.test(message);
+
+const parseLowRelationThreshold = (message: string) => {
+  const patterns = [
+    /<=\s*(\d+)/i,
+    /less than or equal to\s*(\d+)/i,
+    /at most\s*(\d+)/i,
+    /up to\s*(\d+)/i,
+    /below\s*(\d+)/i,
+    /under\s*(\d+)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = message.match(pattern);
+    const value = match?.[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+
+    if (Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return null;
+};
+
+const parseProductDeliveryRelationMode = (
+  message: string
+): ProductDeliveryRelationMode | null => {
+  if (
+    /(item link|item links|item-level|item level|delivery item links?|item pairs?)/i.test(
+      message
+    )
+  ) {
+    return "delivery_item_links";
+  }
+
+  if (
+    /(delivery-document pairs?|delivery document pairs?|document pairs?|document-level|document level)/i.test(
+      message
+    )
+  ) {
+    return "delivery_document_pairs";
+  }
+
+  return null;
+};
+
+const resolveProductDeliveryClarification = (input: {
+  message: string;
+  history: RecentChatMessage[];
+}) => {
+  const recentHistory = input.history.slice(-4);
+  const hasClarificationPrompt = recentHistory.some(
+    (entry) =>
+      entry.role === "assistant" &&
+      isProductDeliveryClarificationPrompt(entry.content)
+  );
+  const hasRecentBroadQuestion = recentHistory.some(
+    (entry) =>
+      entry.role === "user" && isProductDeliveryRelationQuery(entry.content)
+  );
+
+  if (!hasClarificationPrompt || !hasRecentBroadQuestion) {
+    return null;
+  }
+
+  const relationMode = parseProductDeliveryRelationMode(input.message);
+  const lowThreshold = parseLowRelationThreshold(input.message);
+
+  if (!relationMode && !lowThreshold) {
+    return null;
+  }
+
+  return {
+    relationMode,
+    lowThreshold,
+  };
+};
+
 const buildBrokenFlowSql = () => ({
   sql: `
 SELECT
@@ -397,30 +483,80 @@ LIMIT 50
     "the sales order has delivered items that still do not have matching billing items, or the order looks billed complete while delivery is not complete",
 });
 
-const buildProductDeliveryRelationSql = () => ({
-  sql: `
+const buildProductDeliveryRelationSql = (input?: {
+  relationMode?: ProductDeliveryRelationMode | null;
+  lowThreshold?: number | null;
+}) => {
+  const relationMode = input?.relationMode ?? "delivery_document_pairs";
+  const normalizedThreshold =
+    input?.lowThreshold && Number.isFinite(input.lowThreshold)
+      ? Math.max(1, Math.min(input.lowThreshold, 200))
+      : null;
+  const relationColumns =
+    relationMode === "delivery_item_links"
+      ? `soi."material" AS "product",
+    odi."deliveryDocument",
+    odi."deliveryDocumentItem"`
+      : `soi."material" AS "product",
+    odi."deliveryDocument"`;
+  const selectedNullableColumns =
+    relationMode === "delivery_item_links"
+      ? `,
+  rel."product",
+  rel."deliveryDocument",
+  rel."deliveryDocumentItem"`
+      : `,
+  rel."product",
+  rel."deliveryDocument"`;
+  const orderBy =
+    relationMode === "delivery_item_links"
+      ? `rel."product" NULLS LAST,
+  rel."deliveryDocument" NULLS LAST,
+  rel."deliveryDocumentItem" NULLS LAST`
+      : `rel."product" NULLS LAST,
+  rel."deliveryDocument" NULLS LAST`;
+  const joinClause = normalizedThreshold
+    ? `LEFT JOIN "ProductDeliveryRelations" rel
+  ON rc."totalRelationCount" <= ${normalizedThreshold}`
+    : `LEFT JOIN "ProductDeliveryRelations" rel
+  ON true`;
+  const explanation =
+    relationMode === "delivery_item_links"
+      ? normalizedThreshold
+        ? `each relation is counted at the delivery-item level by linking a sales order item's material to the exact delivery item that fulfilled it, and the detailed rows are shown only when the total relation count is at most ${normalizedThreshold}`
+        : "each relation is counted at the delivery-item level by linking a sales order item's material to the exact delivery item that fulfilled it"
+      : normalizedThreshold
+        ? `each relation is counted as a distinct product and delivery-document pair by linking a sales order item's material to the delivery document that fulfilled it, and the detailed rows are shown only when the total relation count is at most ${normalizedThreshold}`
+        : "each relation is counted as a distinct product and delivery-document pair by linking a sales order item's material to the delivery document that fulfilled it";
+
+  return {
+    sql: `
 WITH "ProductDeliveryRelations" AS (
   SELECT DISTINCT
-    soi."material" AS "product",
-    odi."deliveryDocument"
+    ${relationColumns}
   FROM "SalesOrderItem" soi
   JOIN "OutboundDeliveryItem" odi
     ON odi."referenceSdDocument" = soi."salesOrder"
    AND odi."referenceSdDocumentItemNormalized" = soi."salesOrderItemNormalized"
   WHERE soi."material" IS NOT NULL
     AND odi."deliveryDocument" IS NOT NULL
+),
+"RelationCount" AS (
+  SELECT CAST(COUNT(*) AS INTEGER) AS "totalRelationCount"
+  FROM "ProductDeliveryRelations"
 )
 SELECT
-  CAST(COUNT(*) OVER () AS INTEGER) AS "totalRelationCount",
-  "product",
-  "deliveryDocument"
-FROM "ProductDeliveryRelations"
-ORDER BY "product", "deliveryDocument"
-LIMIT 50
+  rc."totalRelationCount"
+  ${selectedNullableColumns}
+FROM "RelationCount" rc
+${joinClause}
+ORDER BY
+  ${orderBy}
+LIMIT 200
   `.trim(),
-  explanation:
-    "each product-to-delivery relation is inferred by linking a sales order item's material to the delivery item that fulfilled that same sales order item, then count the distinct product and delivery document pairs",
-});
+    explanation,
+  };
+};
 
 const buildSalesOrderItemMaterialGroupSql = (input: {
   salesOrder: string;
@@ -522,11 +658,18 @@ const stringifyRowsForModel = (rows: Record<string, unknown>[]) =>
     2
   );
 
-const buildQueryPlan = (message: string): QueryPlan => {
+const buildQueryPlan = (
+  message: string,
+  history: RecentChatMessage[]
+): QueryPlan => {
   const promptHints: string[] = [];
   const salesOrderItemReference = extractSalesOrderItemReference(message);
   const billingDocumentItemReference =
     extractBillingDocumentItemReference(message);
+  const productDeliveryClarification = resolveProductDeliveryClarification({
+    message,
+    history,
+  });
 
   if (salesOrderItemReference) {
     promptHints.push(
@@ -551,6 +694,46 @@ const buildQueryPlan = (message: string): QueryPlan => {
         "Also, what should count as a low relation count: `<= 5`, `<= 10`, or `<= 20`?",
         "Reply with something like: `Use delivery-document pairs and treat <= 10 as low.`",
       ].join(" "),
+    };
+  }
+
+  if (productDeliveryClarification) {
+    if (
+      productDeliveryClarification.relationMode &&
+      productDeliveryClarification.lowThreshold
+    ) {
+      return {
+        promptHints,
+        directSql: buildProductDeliveryRelationSql({
+          relationMode: productDeliveryClarification.relationMode,
+          lowThreshold: productDeliveryClarification.lowThreshold,
+        }),
+        highlightMode: "primary_only",
+        clarification: null,
+      };
+    }
+
+    const clarificationParts = [
+      "I still need one last detail before I can run that product-to-delivery query.",
+    ];
+
+    if (!productDeliveryClarification.relationMode) {
+      clarificationParts.push(
+        "Should I count delivery-document pairs or item-level links?"
+      );
+    }
+
+    if (!productDeliveryClarification.lowThreshold) {
+      clarificationParts.push(
+        "What number should count as low: `<= 5`, `<= 10`, or `<= 20`?"
+      );
+    }
+
+    return {
+      promptHints,
+      directSql: null,
+      highlightMode: "primary_only",
+      clarification: clarificationParts.join(" "),
     };
   }
 
@@ -1171,9 +1354,8 @@ const prepareQueryExecution = async (input: {
 }): Promise<PreparedQueryResult> => {
   ensureGenAiConfigured();
   await ensureChatSession(input.sessionId);
-  const queryPlan = buildQueryPlan(input.message);
-
   const history = await getRecentChatMessages(input.sessionId);
+  const queryPlan = buildQueryPlan(input.message, history);
 
   await saveChatMessage({
     sessionId: input.sessionId,
