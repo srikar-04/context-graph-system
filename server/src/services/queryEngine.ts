@@ -20,6 +20,7 @@ import {
   generateTextResponse,
   streamTextResponse,
 } from "./genai.js";
+import type { GraphNodeType } from "../types/graph.js";
 
 const llmSuccessSchema = z.object({
   sql: z.string().min(1),
@@ -37,12 +38,24 @@ type QueryResponse = {
   executionTimeMs: number;
 };
 
+type HighlightMode = "strict" | "relational";
+
+type QueryPlan = {
+  promptHints: string[];
+  directSql: {
+    sql: string;
+    explanation: string;
+  } | null;
+  highlightMode: HighlightMode;
+};
+
 type PreparedQueryResult =
   | {
       kind: "out_of_scope";
       answer: string;
       sql: null;
       sqlExplanation: null;
+      highlightMode: HighlightMode;
       nodesReferenced: string[];
       executionTimeMs: number;
     }
@@ -51,6 +64,7 @@ type PreparedQueryResult =
       answer: string;
       sql: string;
       sqlExplanation: string;
+      highlightMode: HighlightMode;
       nodesReferenced: string[];
       executionTimeMs: number;
       rows: Record<string, unknown>[];
@@ -59,6 +73,7 @@ type PreparedQueryResult =
       kind: "data";
       sql: string;
       sqlExplanation: string;
+      highlightMode: HighlightMode;
       nodesReferenced: string[];
       executionTimeMs: number;
       rows: Record<string, unknown>[];
@@ -88,6 +103,8 @@ Rules:
 8. NEVER use lowercase or unquoted table names like salesorderheader. Use "SalesOrderHeader".
 9. Keep the SQL focused and safe. Return exactly one SELECT statement. No commentary. No markdown.
 10. Prefer returning the identifiers and business fields needed to explain entity relationships, not only aggregates.
+11. When the user asks for incomplete, broken, missing, or unmatched Order-to-Cash flows, reason through document presence with LEFT JOINs across sales orders, delivery items, billing items, journal entries, and payments instead of relying only on status flags.
+12. When the user writes a document item in compact form like 740565/40 or S40604/40, split it into the header document id and the normalized item id. Prefer the normalized item columns such as "salesOrderItemNormalized", "deliveryDocumentItemNormalized", "billingDocumentItemNormalized", "referenceSdDocumentItemNormalized", and "salesDocumentItemNormalized" when filtering short item numbers.
 `.trim();
 
 const ANSWER_SYSTEM_INSTRUCTIONS = `
@@ -111,6 +128,26 @@ Rules:
 const OUT_OF_SCOPE_ANSWER =
   "This system is designed to answer questions about the SAP Order-to-Cash dataset only.";
 const NO_DATA_ANSWER = "No data was found for this query in the dataset.";
+const TABLE_TO_NODE_TYPES: Partial<
+  Record<(typeof ALLOWED_TABLES)[number], GraphNodeType[]>
+> = {
+  BusinessPartner: ["BusinessPartner"],
+  Plant: ["Plant"],
+  Product: ["Product"],
+  ProductDescription: ["Product"],
+  ProductPlant: ["Product", "Plant"],
+  ProductStorageLocation: ["Product", "Plant"],
+  SalesOrderHeader: ["SalesOrder"],
+  SalesOrderItem: ["SalesOrderItem"],
+  SalesOrderScheduleLine: ["ScheduleLine"],
+  OutboundDeliveryHeader: ["OutboundDelivery"],
+  OutboundDeliveryItem: ["OutboundDeliveryItem"],
+  BillingDocumentHeader: ["BillingDocument"],
+  BillingDocumentCancellation: ["BillingDocument"],
+  BillingDocumentItem: ["BillingDocumentItem"],
+  JournalEntryAccountsReceivable: ["JournalEntry"],
+  PaymentAccountsReceivable: ["Payment"],
+};
 
 const sanitizeModelResponse = (text: string) =>
   text
@@ -127,6 +164,12 @@ const sanitizeSql = (sql: string) =>
     .replace(/^```\s*/i, "")
     .replace(/\s*```$/i, "")
     ?.trim() ?? "";
+const normalizeItemNumber = (value: string) => {
+  const normalized = value.trim().replace(/^0+/, "");
+  return normalized === "" ? "0" : normalized;
+};
+
+const escapeSqlLiteral = (value: string) => value.replace(/'/g, "''");
 
 const SQL_KEYWORDS = new Set([
   "all",
@@ -199,6 +242,164 @@ const expandReferenceKeys = (value: string) => {
   }
 
   return Array.from(keys);
+};
+
+const extractReferencedTablesFromSql = (sql: string) =>
+  Array.from(sql.matchAll(/\b(?:from|join)\s+"?([A-Za-z][A-Za-z0-9_]*)"?/gi))
+    .map((match) => match[1])
+    .filter((tableName): tableName is string => Boolean(tableName))
+    .filter(
+      (tableName, index, tableNames) => tableNames.indexOf(tableName) === index
+    );
+
+const extractSalesOrderItemReference = (message: string) => {
+  if (!/(sales order item|sales order|order item)/i.test(message)) {
+    return null;
+  }
+
+  const match = message.match(/\b([A-Za-z]?\d{4,})\s*\/\s*(\d{1,6})\b/);
+
+  if (!match) {
+    return null;
+  }
+
+  const salesOrder = match[1];
+  const itemNumber = match[2];
+
+  if (!salesOrder || !itemNumber) {
+    return null;
+  }
+
+  return {
+    salesOrder,
+    rawItemNumber: itemNumber,
+    normalizedItemNumber: normalizeItemNumber(itemNumber),
+  };
+};
+
+const isBrokenFlowQuery = (message: string) =>
+  /(broken|incomplete|missing|unmatched).*(flow|flows)|delivered\b.*\bnot billed|billed\b.*\bwithout delivery|order to cash flow/i.test(
+    message
+  );
+
+const isRelationalMessage = (message: string) =>
+  /(link|linked|relationship|relationships|flow|flows|path|chain|connected|connect|incomplete|broken)/i.test(
+    message
+  );
+
+const buildBrokenFlowSql = () => ({
+  sql: `
+SELECT
+  soh."salesOrder",
+  soh."soldToParty",
+  soh."creationDate",
+  soh."overallDeliveryStatus",
+  soh."overallOrdReltdBillgStatus",
+  COUNT(DISTINCT soi."salesOrderItemNormalized") AS "salesOrderItemCount",
+  SUM(
+    CASE
+      WHEN odi."deliveryDocument" IS NOT NULL AND bdi."billingDocument" IS NULL THEN 1
+      ELSE 0
+    END
+  ) AS "deliveredNotBilledItemCount",
+  CASE
+    WHEN COALESCE(soh."overallOrdReltdBillgStatus", '') = 'C'
+      AND COALESCE(soh."overallDeliveryStatus", '') <> 'C'
+    THEN true
+    ELSE false
+  END AS "billedWithoutCompleteDelivery"
+FROM "SalesOrderHeader" soh
+JOIN "SalesOrderItem" soi
+  ON soi."salesOrder" = soh."salesOrder"
+LEFT JOIN "OutboundDeliveryItem" odi
+  ON odi."referenceSdDocument" = soi."salesOrder"
+ AND odi."referenceSdDocumentItemNormalized" = soi."salesOrderItemNormalized"
+LEFT JOIN "BillingDocumentItem" bdi
+  ON bdi."referenceSdDocument" = odi."deliveryDocument"
+ AND bdi."referenceSdDocumentItemNormalized" = odi."deliveryDocumentItemNormalized"
+GROUP BY
+  soh."salesOrder",
+  soh."soldToParty",
+  soh."creationDate",
+  soh."overallDeliveryStatus",
+  soh."overallOrdReltdBillgStatus"
+HAVING
+  SUM(
+    CASE
+      WHEN odi."deliveryDocument" IS NOT NULL AND bdi."billingDocument" IS NULL THEN 1
+      ELSE 0
+    END
+  ) > 0
+  OR (
+    COALESCE(soh."overallOrdReltdBillgStatus", '') = 'C'
+    AND COALESCE(soh."overallDeliveryStatus", '') <> 'C'
+  )
+ORDER BY
+  "deliveredNotBilledItemCount" DESC,
+  "billedWithoutCompleteDelivery" DESC,
+  soh."salesOrder"
+LIMIT 50
+  `.trim(),
+  explanation:
+    "the sales order has delivered items that still do not have matching billing items, or the order looks billed complete while delivery is not complete",
+});
+
+const buildSalesOrderItemMaterialGroupSql = (input: {
+  salesOrder: string;
+  normalizedItemNumber: string;
+}) => ({
+  sql: `
+SELECT
+  soi."salesOrder",
+  soi."salesOrderItem",
+  soi."salesOrderItemNormalized",
+  soi."material",
+  soi."materialGroup"
+FROM "SalesOrderItem" soi
+WHERE soi."salesOrder" = '${escapeSqlLiteral(input.salesOrder)}'
+  AND soi."salesOrderItemNormalized" = '${escapeSqlLiteral(
+    input.normalizedItemNumber
+  )}'
+LIMIT 10
+  `.trim(),
+  explanation:
+    "the sales order item matches the requested sales order and normalized item number, and then return its material and material group details",
+});
+
+const buildQueryPlan = (message: string): QueryPlan => {
+  const promptHints: string[] = [];
+  const salesOrderItemReference = extractSalesOrderItemReference(message);
+
+  if (salesOrderItemReference) {
+    promptHints.push(
+      `The user referenced sales order ${salesOrderItemReference.salesOrder} and item ${salesOrderItemReference.rawItemNumber}. For SalesOrderItem filters, prefer "salesOrderItemNormalized" = '${salesOrderItemReference.normalizedItemNumber}' because the raw item field may be zero-padded.`
+    );
+  }
+
+  if (isBrokenFlowQuery(message)) {
+    return {
+      promptHints,
+      directSql: buildBrokenFlowSql(),
+      highlightMode: "relational",
+    };
+  }
+
+  if (salesOrderItemReference && /material group/i.test(message)) {
+    return {
+      promptHints,
+      directSql: buildSalesOrderItemMaterialGroupSql({
+        salesOrder: salesOrderItemReference.salesOrder,
+        normalizedItemNumber: salesOrderItemReference.normalizedItemNumber,
+      }),
+      highlightMode: "strict",
+    };
+  }
+
+  return {
+    promptHints,
+    directSql: null,
+    highlightMode: isRelationalMessage(message) ? "relational" : "strict",
+  };
 };
 
 const buildActiveColumnLookup = (
@@ -442,13 +643,21 @@ const extractLiteralCandidates = (text: string) => {
 const extractNodeReferences = async (input: {
   rows: Record<string, unknown>[];
   sql: string;
-  message: string;
+  highlightMode: HighlightMode;
 }) => {
   const graph = getCachedGraph() ?? (await rebuildGraphCache());
 
   if (!graph) {
     return [];
   }
+
+  const referencedTables = extractReferencedTablesFromSql(input.sql);
+  const focusTypes = new Set<GraphNodeType>(
+    referencedTables.flatMap(
+      (tableName) =>
+        TABLE_TO_NODE_TYPES[tableName as (typeof ALLOWED_TABLES)[number]] ?? []
+    )
+  );
 
   const referenceIndex = new Map<string, Set<string>>();
 
@@ -461,6 +670,10 @@ const extractNodeReferences = async (input: {
   };
 
   for (const node of graph.nodes) {
+    if (focusTypes.size > 0 && !focusTypes.has(node.type)) {
+      continue;
+    }
+
     addReference(node.id, node.id);
     addReference(node.label, node.id);
 
@@ -482,10 +695,6 @@ const extractNodeReferences = async (input: {
     discoveredValues.add(value);
   }
 
-  for (const value of extractLiteralCandidates(input.message)) {
-    discoveredValues.add(value);
-  }
-
   const nodeReferences = new Set<string>();
 
   for (const value of discoveredValues) {
@@ -502,7 +711,7 @@ const extractNodeReferences = async (input: {
     }
   }
 
-  if (nodeReferences.size > 0) {
+  if (nodeReferences.size > 0 && input.highlightMode === "relational") {
     const adjacency = new Map<string, Set<string>>();
 
     for (const edge of graph.edges) {
@@ -525,23 +734,24 @@ const extractNodeReferences = async (input: {
       for (const neighborId of neighbors) {
         nodeReferences.add(neighborId);
 
-        if (nodeReferences.size >= 50) {
+        if (nodeReferences.size >= 24) {
           break;
         }
       }
 
-      if (nodeReferences.size >= 50) {
+      if (nodeReferences.size >= 24) {
         break;
       }
     }
   }
 
-  return Array.from(nodeReferences).slice(0, 50);
+  return Array.from(nodeReferences).slice(0, 24);
 };
 
 const buildSqlMessages = async (input: {
   message: string;
   historyTranscript: string;
+  promptHints: string[];
 }): Promise<ChatCompletionMessageParam[]> => {
   const schemaPrompt = await getDatabaseSchemaPrompt();
 
@@ -561,6 +771,9 @@ ${schemaPrompt}
 
 Conversation history:
 ${input.historyTranscript || "No previous conversation history."}
+
+Reasoning hints:
+${input.promptHints.length > 0 ? input.promptHints.map((hint) => `- ${hint}`).join("\n") : "- No extra reasoning hints."}
 
 User question:
 ${input.message}
@@ -695,6 +908,7 @@ const prepareQueryExecution = async (input: {
 }): Promise<PreparedQueryResult> => {
   ensureGenAiConfigured();
   await ensureChatSession(input.sessionId);
+  const queryPlan = buildQueryPlan(input.message);
 
   const history = await getRecentChatMessages(input.sessionId);
 
@@ -704,13 +918,17 @@ const prepareQueryExecution = async (input: {
     content: input.message,
   });
 
-  const messages = await buildSqlMessages({
-    message: input.message,
-    historyTranscript: buildHistoryTranscript(history),
-  });
-
-  const rawModelResponse = await generateJsonResponse(messages);
-  const parsedResponse = parseModelResponse(rawModelResponse);
+  const parsedResponse = queryPlan.directSql
+    ? queryPlan.directSql
+    : parseModelResponse(
+        await generateJsonResponse(
+          await buildSqlMessages({
+            message: input.message,
+            historyTranscript: buildHistoryTranscript(history),
+            promptHints: queryPlan.promptHints,
+          })
+        )
+      );
 
   if ("error" in parsedResponse) {
     return {
@@ -718,6 +936,7 @@ const prepareQueryExecution = async (input: {
       answer: OUT_OF_SCOPE_ANSWER,
       sql: null,
       sqlExplanation: null,
+      highlightMode: queryPlan.highlightMode,
       nodesReferenced: [],
       executionTimeMs: 0,
     };
@@ -746,7 +965,7 @@ const prepareQueryExecution = async (input: {
   const nodesReferenced = await extractNodeReferences({
     rows,
     sql: safeSql,
-    message: input.message,
+    highlightMode: queryPlan.highlightMode,
   });
 
   if (rows.length === 0) {
@@ -755,6 +974,7 @@ const prepareQueryExecution = async (input: {
       answer: NO_DATA_ANSWER,
       sql: safeSql,
       sqlExplanation: parsedResponse.explanation,
+      highlightMode: queryPlan.highlightMode,
       nodesReferenced,
       executionTimeMs,
       rows,
@@ -765,6 +985,7 @@ const prepareQueryExecution = async (input: {
     kind: "data",
     sql: safeSql,
     sqlExplanation: parsedResponse.explanation,
+    highlightMode: queryPlan.highlightMode,
     nodesReferenced,
     executionTimeMs,
     rows,

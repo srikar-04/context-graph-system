@@ -603,6 +603,41 @@
 
 - `client`: `npm run build`
 
+## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
+
+### Plan improvements applied
+
+- Updated `plan.md` so broad exception-style O2C questions and compact `document/item` identifiers are now explicitly treated as query-planning problems rather than pure free-form text-to-SQL tasks.
+- Updated `plan.md` so graph highlighting is now documented as SQL-scope-aware instead of globally matching every node that happens to share a scalar value.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` to add a lightweight query-planning layer before SQL generation.
+  The backend now identifies hard-case questions, adds reasoning hints for the model, and can bypass free-form SQL generation when a deterministic query is safer.
+- Added a deterministic SQL path for broad broken-flow questions such as:
+  delivered but not billed,
+  billed without complete delivery,
+  and incomplete O2C flow detection.
+  This avoids relying only on status-code guessing by the model.
+- Added explicit normalization logic for compact sales-order-item references like `S40604/40`.
+  The query layer now understands that short item numbers should usually target `salesOrderItemNormalized` instead of the raw zero-padded `salesOrderItem` field.
+- Added a deterministic SQL path for the concrete sales-order-item material-group lookup pattern shown during testing.
+  This prevents the model from missing obvious item-detail queries when the item identifier is written in compact human format.
+- Tightened `server/src/services/queryEngine.ts` highlighting behavior.
+  Highlight extraction now:
+  scopes candidate nodes to the node types implied by the executed SQL tables,
+  stops using raw message literals as generic graph matches,
+  and only expands to neighboring nodes for clearly relational questions.
+  This specifically reduces the previous issue where a simple business-partner key lookup could highlight unrelated schedule lines, sales orders, and deliveries just because they shared the same customer id.
+
+### Verification completed
+
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- I could not run a real end-to-end database-backed smoke test from this terminal in this pass, so the changes are code-verified and type-checked, but not live-query-verified here.
+
 ## Client and LLM Reliability Pass - Graph Canvas Ownership, Click Restoration, and Stream Error Hardening
 
 ### Plan improvements applied

@@ -1028,3 +1028,11 @@ The `/api/query/chat/stream` route must always log the original thrown error bef
 ### Gemini / OpenAI-Compatible Retry Handling
 
 Transient model-provider failures such as rate limits, connection resets, and upstream 5xx responses should be retried a small number of times in the Gemini OpenAI-compatible client wrapper before surfacing an error to the user. Permanent request failures should still be normalized into explicit API errors.
+
+### Query Planning For Hard O2C Questions
+
+Some business questions are too brittle to leave entirely to free-form text-to-SQL generation. Broad exception-analysis questions such as broken or incomplete Order-to-Cash flows, and compact item references such as `salesOrder/item`, should be handled with a lightweight deterministic query-planning layer before the LLM is asked to generate SQL.
+
+### Highlighting Must Respect Query Scope
+
+Graph highlighting should prefer node types implied by the executed SQL tables and only expand to neighbors for clearly relational questions. Shared scalar values such as the same customer or business partner id must not automatically highlight unrelated downstream documents for simple lookup questions.
