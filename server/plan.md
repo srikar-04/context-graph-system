@@ -1033,6 +1033,20 @@ Transient model-provider failures such as rate limits, connection resets, and up
 
 Some business questions are too brittle to leave entirely to free-form text-to-SQL generation. Broad exception-analysis questions such as broken or incomplete Order-to-Cash flows, and compact item references such as `salesOrder/item`, should be handled with a lightweight deterministic query-planning layer before the LLM is asked to generate SQL.
 
+The same rule applies to broad cross-entity relationship questions such as product-to-delivery relation counts and explicit end-to-end trace requests for a specific billing-document item. These should use deterministic SQL templates when the business intent is recognizable.
+
 ### Highlighting Must Respect Query Scope
 
 Graph highlighting should prefer node types implied by the executed SQL tables and only expand to neighbors for clearly relational questions. Shared scalar values such as the same customer or business partner id must not automatically highlight unrelated downstream documents for simple lookup questions.
+
+### Aggregate Result Safety In Streamed Responses
+
+When SQL results contain aggregate values from PostgreSQL, the answer-building pipeline must normalize non-JSON-native values such as `BigInt` before constructing streamed LLM prompts. Otherwise a successful SQL query can still collapse into an internal server error after execution.
+
+### Clarification Before SQL For Underspecified Broad Questions
+
+When a broad business question is underspecified in a way that materially changes the SQL, the backend should ask a narrowing follow-up question instead of forcing text-to-SQL generation. A good example is a product-to-delivery relation question that asks to list details only when the count is "low" without defining what "low" means, or without clarifying whether the count should use document pairs or item-level links.
+
+### Identifier-Scoped Highlighting For Broad Summary Answers
+
+For broad summary or exception-analysis queries, graph highlighting should index only identifier-like fields from result rows and node metadata. It should not match every scalar value in the payload, because status flags, counts, or shared customer ids can cause visually noisy highlights that do not reflect the true focus of the answer.

@@ -603,6 +603,34 @@
 
 - `client`: `npm run build`
 
+## Broad Query Clarification Pass - Narrowing Questions and Identifier-Scoped Highlighting
+
+### Plan improvements applied
+
+- Updated `plan.md` so underspecified broad questions are now explicitly treated as clarification cases before SQL generation.
+- Updated `plan.md` so broad-query highlighting is now documented as identifier-scoped rather than scalar-scoped.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` so the existing clarification branch is now actually executed instead of being defined but never returned.
+  When a broad product-to-delivery relation question asks for extra detail only if the count is "low" without defining that threshold, the backend now responds with a narrowing follow-up question instead of pushing the request through SQL generation.
+- Improved that clarification message so it asks for the two details that materially change the query:
+  whether the relation should be counted at document-pair level or item-link level,
+  and what numeric threshold should count as "low".
+- Tightened graph highlighting in `server/src/services/queryEngine.ts`.
+  The backend no longer indexes every scalar value from node metadata and result rows for broad summary answers.
+  It now uses identifier-like fields only, which reduces the previous issue where broad or aggregate answers could light up unrelated nodes because they happened to share the same customer id, status value, or count-related scalar.
+- Preserved the earlier `WITH ... SELECT` validator fix.
+  This remains important because the deterministic product-to-delivery relation SQL uses a CTE, and broad relation queries would continue to fail if the SQL validator only accepted statements beginning with `SELECT`.
+
+### Verification completed
+
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- I could not run a live DB-backed smoke test for the exact broad-query examples from this terminal in this pass, so the fix is build-verified and code-verified, but not runtime-verified here against the current Neon data.
+
 ## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
 
 ### Plan improvements applied
@@ -637,6 +665,38 @@
 ### Remaining limitation
 
 - I could not run a real end-to-end database-backed smoke test from this terminal in this pass, so the changes are code-verified and type-checked, but not live-query-verified here.
+
+## Broad Query Stability Pass - Deterministic Relationship SQL and BigInt-Safe Streaming
+
+### Plan improvements applied
+
+- Updated `plan.md` so broad cross-entity relationship questions and explicit billing-document-item trace requests are now treated as deterministic query-planning cases when their intent is recognizable.
+- Updated `plan.md` so streamed answer generation now explicitly accounts for PostgreSQL aggregate result types such as `BigInt`.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` to address the two different failure classes that had been showing up as the same user-facing symptom.
+  The first class was incorrect or brittle SQL generation for broad relational questions.
+  The second class was backend failure after SQL had already succeeded, caused by non-JSON-native values in the result rows.
+- Added a deterministic SQL planner for the broad product-to-delivery relation question pattern.
+  Instead of letting the model invent a join against a non-existent `material` column on delivery items, the backend now computes product-to-delivery relations through the actual schema path:
+  `SalesOrderItem.material -> OutboundDeliveryItem via reference document/item`.
+- Added a deterministic SQL planner for billing-document-item flow tracing.
+  This path now matches normalized billing-document item numbers and traces the linked delivery item, sales order item, and journal entry chain with explicit joins.
+- Hardened the existing broken-flow planner by casting aggregate counts to integers in SQL.
+  This reduces the chance of PostgreSQL aggregate types surfacing as `BigInt` values during answer generation.
+- Added row normalization utilities in `server/src/services/queryEngine.ts` so LLM answer prompts serialize aggregate result rows safely.
+  `BigInt` values are now converted before `JSON.stringify`, which prevents the previous streamed internal-server-error failure after successful SQL execution.
+- Moved answer-message construction inside the `try` blocks for both normal and streamed answer generation.
+  This ensures that if prompt-building or serialization ever fails again, the system still falls back to the deterministic human-readable answer instead of collapsing the whole stream with an internal error.
+
+### Verification completed
+
+- `server`: `npm run build`
+
+### Remaining limitation
+
+- I could not run a live DB-backed smoke test for the exact user-provided examples from this terminal in this pass, so the fix is code-verified and type-checked, but not runtime-verified here against the current Neon data.
 
 ## Client and LLM Reliability Pass - Graph Canvas Ownership, Click Restoration, and Stream Error Hardening
 

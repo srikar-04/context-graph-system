@@ -38,7 +38,7 @@ type QueryResponse = {
   executionTimeMs: number;
 };
 
-type HighlightMode = "strict" | "relational";
+type HighlightMode = "strict" | "relational" | "primary_only";
 
 type QueryPlan = {
   promptHints: string[];
@@ -47,9 +47,19 @@ type QueryPlan = {
     explanation: string;
   } | null;
   highlightMode: HighlightMode;
+  clarification: string | null;
 };
 
 type PreparedQueryResult =
+  | {
+      kind: "clarification";
+      answer: string;
+      sql: null;
+      sqlExplanation: null;
+      highlightMode: HighlightMode;
+      nodesReferenced: string[];
+      executionTimeMs: number;
+    }
   | {
       kind: "out_of_scope";
       answer: string;
@@ -128,6 +138,8 @@ Rules:
 const OUT_OF_SCOPE_ANSWER =
   "This system is designed to answer questions about the SAP Order-to-Cash dataset only.";
 const NO_DATA_ANSWER = "No data was found for this query in the dataset.";
+const IDENTIFIER_COLUMN_PATTERN =
+  /(businesspartner|customer|product|material|salesorder|deliverydocument|billingdocument|accountingdocument|referencedocument|invoicereference|salesdocument|glaccount|companycode|fiscalyear|itemnormalized|scheduleline|businesskey)/i;
 const TABLE_TO_NODE_TYPES: Partial<
   Record<(typeof ALLOWED_TABLES)[number], GraphNodeType[]>
 > = {
@@ -277,6 +289,31 @@ const extractSalesOrderItemReference = (message: string) => {
   };
 };
 
+const extractBillingDocumentItemReference = (message: string) => {
+  if (!/(billing item|billing document item|billing document)/i.test(message)) {
+    return null;
+  }
+
+  const match = message.match(/\b(\d{6,})\s*\/\s*(\d{1,6})\b/);
+
+  if (!match) {
+    return null;
+  }
+
+  const billingDocument = match[1];
+  const itemNumber = match[2];
+
+  if (!billingDocument || !itemNumber) {
+    return null;
+  }
+
+  return {
+    billingDocument,
+    rawItemNumber: itemNumber,
+    normalizedItemNumber: normalizeItemNumber(itemNumber),
+  };
+};
+
 const isBrokenFlowQuery = (message: string) =>
   /(broken|incomplete|missing|unmatched).*(flow|flows)|delivered\b.*\bnot billed|billed\b.*\bwithout delivery|order to cash flow/i.test(
     message
@@ -284,6 +321,22 @@ const isBrokenFlowQuery = (message: string) =>
 
 const isRelationalMessage = (message: string) =>
   /(link|linked|relationship|relationships|flow|flows|path|chain|connected|connect|incomplete|broken)/i.test(
+    message
+  );
+
+const needsClarificationForBroadRelationQuestion = (message: string) =>
+  isProductDeliveryRelationQuery(message) &&
+  /\bif the count is low\b/i.test(message) &&
+  !/(<=|>=|<|>|less than|greater than|under|below|over|more than)\s*\d+/i.test(
+    message
+  );
+
+const isProductDeliveryRelationQuery = (message: string) =>
+  /(product).*(delivery)|(delivery).*(product)/i.test(message) &&
+  /(relation|relations|related|count|how many)/i.test(message);
+
+const isBillingFlowTraceQuery = (message: string) =>
+  /(trace|show|follow).*(flow|chain|path)|sales order.*delivery.*billing.*journal entry|journal entry.*billing/i.test(
     message
   );
 
@@ -295,13 +348,13 @@ SELECT
   soh."creationDate",
   soh."overallDeliveryStatus",
   soh."overallOrdReltdBillgStatus",
-  COUNT(DISTINCT soi."salesOrderItemNormalized") AS "salesOrderItemCount",
-  SUM(
+  CAST(COUNT(DISTINCT soi."salesOrderItemNormalized") AS INTEGER) AS "salesOrderItemCount",
+  CAST(SUM(
     CASE
       WHEN odi."deliveryDocument" IS NOT NULL AND bdi."billingDocument" IS NULL THEN 1
       ELSE 0
     END
-  ) AS "deliveredNotBilledItemCount",
+  ) AS INTEGER) AS "deliveredNotBilledItemCount",
   CASE
     WHEN COALESCE(soh."overallOrdReltdBillgStatus", '') = 'C'
       AND COALESCE(soh."overallDeliveryStatus", '') <> 'C'
@@ -344,6 +397,31 @@ LIMIT 50
     "the sales order has delivered items that still do not have matching billing items, or the order looks billed complete while delivery is not complete",
 });
 
+const buildProductDeliveryRelationSql = () => ({
+  sql: `
+WITH "ProductDeliveryRelations" AS (
+  SELECT DISTINCT
+    soi."material" AS "product",
+    odi."deliveryDocument"
+  FROM "SalesOrderItem" soi
+  JOIN "OutboundDeliveryItem" odi
+    ON odi."referenceSdDocument" = soi."salesOrder"
+   AND odi."referenceSdDocumentItemNormalized" = soi."salesOrderItemNormalized"
+  WHERE soi."material" IS NOT NULL
+    AND odi."deliveryDocument" IS NOT NULL
+)
+SELECT
+  CAST(COUNT(*) OVER () AS INTEGER) AS "totalRelationCount",
+  "product",
+  "deliveryDocument"
+FROM "ProductDeliveryRelations"
+ORDER BY "product", "deliveryDocument"
+LIMIT 50
+  `.trim(),
+  explanation:
+    "each product-to-delivery relation is inferred by linking a sales order item's material to the delivery item that fulfilled that same sales order item, then count the distinct product and delivery document pairs",
+});
+
 const buildSalesOrderItemMaterialGroupSql = (input: {
   salesOrder: string;
   normalizedItemNumber: string;
@@ -366,9 +444,89 @@ LIMIT 10
     "the sales order item matches the requested sales order and normalized item number, and then return its material and material group details",
 });
 
+const buildBillingDocumentItemFlowSql = (input: {
+  billingDocument: string;
+  normalizedItemNumber: string;
+}) => ({
+  sql: `
+SELECT
+  bdi."billingDocument",
+  bdi."billingDocumentItem",
+  bdi."billingDocumentItemNormalized",
+  bdi."material",
+  odi."deliveryDocument",
+  odi."deliveryDocumentItem",
+  soi."salesOrder",
+  soi."salesOrderItem",
+  je."accountingDocument",
+  je."accountingDocumentItem",
+  je."companyCode",
+  je."fiscalYear"
+FROM "BillingDocumentItem" bdi
+JOIN "BillingDocumentHeader" bdh
+  ON bdh."billingDocument" = bdi."billingDocument"
+LEFT JOIN "OutboundDeliveryItem" odi
+  ON odi."deliveryDocument" = bdi."referenceSdDocument"
+ AND odi."deliveryDocumentItemNormalized" = bdi."referenceSdDocumentItemNormalized"
+LEFT JOIN "SalesOrderItem" soi
+  ON soi."salesOrder" = odi."referenceSdDocument"
+ AND soi."salesOrderItemNormalized" = odi."referenceSdDocumentItemNormalized"
+LEFT JOIN "JournalEntryAccountsReceivable" je
+  ON je."referenceDocument" = bdi."billingDocument"
+WHERE bdi."billingDocument" = '${escapeSqlLiteral(input.billingDocument)}'
+  AND bdi."billingDocumentItemNormalized" = '${escapeSqlLiteral(
+    input.normalizedItemNumber
+  )}'
+ORDER BY
+  je."accountingDocument",
+  je."accountingDocumentItem"
+LIMIT 20
+  `.trim(),
+  explanation:
+    "the billing document item is matched first, then its linked delivery item, sales order item, and related journal entries are traced to show the full document flow",
+});
+
+const toSerializableValue = (value: unknown): unknown => {
+  if (value === null || value === undefined) {
+    return value;
+  }
+
+  if (typeof value === "bigint") {
+    return value.toString();
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((item) => toSerializableValue(item));
+  }
+
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+
+  if (typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, nestedValue]) => [
+        key,
+        toSerializableValue(nestedValue),
+      ])
+    );
+  }
+
+  return value;
+};
+
+const stringifyRowsForModel = (rows: Record<string, unknown>[]) =>
+  JSON.stringify(
+    rows.map((row) => toSerializableValue(row)),
+    null,
+    2
+  );
+
 const buildQueryPlan = (message: string): QueryPlan => {
   const promptHints: string[] = [];
   const salesOrderItemReference = extractSalesOrderItemReference(message);
+  const billingDocumentItemReference =
+    extractBillingDocumentItemReference(message);
 
   if (salesOrderItemReference) {
     promptHints.push(
@@ -376,11 +534,41 @@ const buildQueryPlan = (message: string): QueryPlan => {
     );
   }
 
+  if (billingDocumentItemReference) {
+    promptHints.push(
+      `The user referenced billing document ${billingDocumentItemReference.billingDocument} and item ${billingDocumentItemReference.rawItemNumber}. For BillingDocumentItem filters, prefer "billingDocumentItemNormalized" = '${billingDocumentItemReference.normalizedItemNumber}' because the raw item field may be zero-padded.`
+    );
+  }
+
+  if (needsClarificationForBroadRelationQuestion(message)) {
+    return {
+      promptHints,
+      directSql: null,
+      highlightMode: "primary_only",
+      clarification: [
+        "I can answer this, but I need two details narrowed down first.",
+        "Should I count distinct product-to-delivery document pairs, or product-to-delivery item links?",
+        "Also, what should count as a low relation count: `<= 5`, `<= 10`, or `<= 20`?",
+        "Reply with something like: `Use delivery-document pairs and treat <= 10 as low.`",
+      ].join(" "),
+    };
+  }
+
   if (isBrokenFlowQuery(message)) {
     return {
       promptHints,
       directSql: buildBrokenFlowSql(),
-      highlightMode: "relational",
+      highlightMode: "primary_only",
+      clarification: null,
+    };
+  }
+
+  if (isProductDeliveryRelationQuery(message)) {
+    return {
+      promptHints,
+      directSql: buildProductDeliveryRelationSql(),
+      highlightMode: "primary_only",
+      clarification: null,
     };
   }
 
@@ -392,6 +580,19 @@ const buildQueryPlan = (message: string): QueryPlan => {
         normalizedItemNumber: salesOrderItemReference.normalizedItemNumber,
       }),
       highlightMode: "strict",
+      clarification: null,
+    };
+  }
+
+  if (billingDocumentItemReference && isBillingFlowTraceQuery(message)) {
+    return {
+      promptHints,
+      directSql: buildBillingDocumentItemFlowSql({
+        billingDocument: billingDocumentItemReference.billingDocument,
+        normalizedItemNumber: billingDocumentItemReference.normalizedItemNumber,
+      }),
+      highlightMode: "relational",
+      clarification: null,
     };
   }
 
@@ -399,6 +600,7 @@ const buildQueryPlan = (message: string): QueryPlan => {
     promptHints,
     directSql: null,
     highlightMode: isRelationalMessage(message) ? "relational" : "strict",
+    clarification: null,
   };
 };
 
@@ -546,7 +748,7 @@ const validateSql = async (sql: string) => {
     sanitized.replace(/;\s*$/u, "")
   );
 
-  if (!/^select\b/i.test(trimmed)) {
+  if (!/^(select|with)\b/i.test(trimmed)) {
     throw new ApiError(
       502,
       "UNSAFE_SQL_GENERATED",
@@ -617,7 +819,11 @@ const collectScalarValues = (value: unknown, values: Set<string>) => {
     return;
   }
 
-  if (typeof value === "string" || typeof value === "number") {
+  if (
+    typeof value === "string" ||
+    typeof value === "number" ||
+    typeof value === "bigint"
+  ) {
     values.add(String(value));
   }
 };
@@ -638,6 +844,44 @@ const extractLiteralCandidates = (text: string) => {
   }
 
   return values;
+};
+
+const collectIdentifierValues = (
+  value: unknown,
+  values: Set<string>,
+  fieldName?: string
+) => {
+  if (value === null || value === undefined) {
+    return;
+  }
+
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      collectIdentifierValues(item, values, fieldName);
+    }
+    return;
+  }
+
+  if (typeof value === "object") {
+    for (const [nestedFieldName, nestedValue] of Object.entries(value)) {
+      collectIdentifierValues(nestedValue, values, nestedFieldName);
+    }
+    return;
+  }
+
+  if (
+    !fieldName ||
+    !IDENTIFIER_COLUMN_PATTERN.test(fieldName) ||
+    !(
+      typeof value === "string" ||
+      typeof value === "number" ||
+      typeof value === "bigint"
+    )
+  ) {
+    return;
+  }
+
+  values.add(String(value));
 };
 
 const extractNodeReferences = async (input: {
@@ -678,7 +922,24 @@ const extractNodeReferences = async (input: {
     addReference(node.label, node.id);
 
     const nodeValues = new Set<string>();
-    collectScalarValues(node.data, nodeValues);
+
+    if (input.highlightMode === "primary_only") {
+      const businessKey =
+        node.data &&
+        typeof node.data === "object" &&
+        "businessKey" in node.data &&
+        (typeof node.data.businessKey === "string" ||
+          typeof node.data.businessKey === "number" ||
+          typeof node.data.businessKey === "bigint")
+          ? String(node.data.businessKey)
+          : null;
+
+      if (businessKey) {
+        nodeValues.add(businessKey);
+      }
+    } else {
+      collectIdentifierValues(node.data, nodeValues);
+    }
 
     for (const value of nodeValues) {
       addReference(value, node.id);
@@ -688,7 +949,9 @@ const extractNodeReferences = async (input: {
   const discoveredValues = new Set<string>();
 
   for (const row of input.rows) {
-    collectScalarValues(row, discoveredValues);
+    for (const [fieldName, fieldValue] of Object.entries(row)) {
+      collectIdentifierValues(fieldValue, discoveredValues, fieldName);
+    }
   }
 
   for (const value of extractLiteralCandidates(input.sql)) {
@@ -815,7 +1078,7 @@ Result row count:
 ${input.rows.length}
 
 Result sample:
-${JSON.stringify(previewRows, null, 2)}
+${stringifyRowsForModel(previewRows)}
 `.trim(),
     },
   ];
@@ -918,6 +1181,18 @@ const prepareQueryExecution = async (input: {
     content: input.message,
   });
 
+  if (queryPlan.clarification) {
+    return {
+      kind: "clarification",
+      answer: queryPlan.clarification,
+      sql: null,
+      sqlExplanation: null,
+      highlightMode: queryPlan.highlightMode,
+      nodesReferenced: [],
+      executionTimeMs: 0,
+    };
+  }
+
   const parsedResponse = queryPlan.directSql
     ? queryPlan.directSql
     : parseModelResponse(
@@ -998,7 +1273,11 @@ export const answerQuery = async (input: {
 }): Promise<QueryResponse> => {
   const prepared = await prepareQueryExecution(input);
 
-  if (prepared.kind === "out_of_scope" || prepared.kind === "no_data") {
+  if (
+    prepared.kind === "clarification" ||
+    prepared.kind === "out_of_scope" ||
+    prepared.kind === "no_data"
+  ) {
     await saveChatMessage({
       sessionId: input.sessionId,
       role: "assistant",
@@ -1014,14 +1293,6 @@ export const answerQuery = async (input: {
     };
   }
 
-  const answerMessages = buildAnswerMessages({
-    message: input.message,
-    sql: prepared.sql,
-    sqlExplanation: prepared.sqlExplanation,
-    rows: prepared.rows,
-    executionTimeMs: prepared.executionTimeMs,
-  });
-
   const fallbackAnswer = buildFallbackAnswer({
     message: input.message,
     sqlExplanation: prepared.sqlExplanation,
@@ -1031,6 +1302,14 @@ export const answerQuery = async (input: {
   let answer = fallbackAnswer;
 
   try {
+    const answerMessages = buildAnswerMessages({
+      message: input.message,
+      sql: prepared.sql,
+      sqlExplanation: prepared.sqlExplanation,
+      rows: prepared.rows,
+      executionTimeMs: prepared.executionTimeMs,
+    });
+
     answer = await generateTextResponse(answerMessages);
   } catch {
     // `answer` is already initialized to `fallbackAnswer`, so we don't need
@@ -1074,7 +1353,11 @@ export const streamAnswerQuery = async (
     executionTimeMs: prepared.executionTimeMs,
   });
 
-  if (prepared.kind === "out_of_scope" || prepared.kind === "no_data") {
+  if (
+    prepared.kind === "clarification" ||
+    prepared.kind === "out_of_scope" ||
+    prepared.kind === "no_data"
+  ) {
     handlers.onChunk(prepared.answer);
 
     await saveChatMessage({
@@ -1092,14 +1375,6 @@ export const streamAnswerQuery = async (
     };
   }
 
-  const answerMessages = buildAnswerMessages({
-    message: input.message,
-    sql: prepared.sql,
-    sqlExplanation: prepared.sqlExplanation,
-    rows: prepared.rows,
-    executionTimeMs: prepared.executionTimeMs,
-  });
-
   const fallbackAnswer = buildFallbackAnswer({
     message: input.message,
     sqlExplanation: prepared.sqlExplanation,
@@ -1109,6 +1384,14 @@ export const streamAnswerQuery = async (
   let answer = fallbackAnswer;
 
   try {
+    const answerMessages = buildAnswerMessages({
+      message: input.message,
+      sql: prepared.sql,
+      sqlExplanation: prepared.sqlExplanation,
+      rows: prepared.rows,
+      executionTimeMs: prepared.executionTimeMs,
+    });
+
     answer = await streamTextResponse(answerMessages, handlers.onChunk);
   } catch {
     handlers.onChunk(fallbackAnswer);
