@@ -85,6 +85,8 @@ queryRouter.post(
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
     res.setHeader("X-Accel-Buffering", "no");
+    req.socket.setTimeout(0);
+    res.socket?.setNoDelay(true);
     res.flushHeaders?.();
 
     const writeEvent = (payload: Record<string, unknown>) => {

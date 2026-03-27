@@ -1060,3 +1060,5 @@ Deterministic query templates may legitimately use `WITH` common table expressio
 ### Streaming Transport Should Use Event Framing That Survives Buffering
 
 If the chat route is intended to stream partial answer text to the browser, the transport should use explicit event framing and immediate flush behavior instead of relying on ad-hoc newline-delimited writes. Otherwise browsers, proxies, or middleware can buffer chunk writes and make the answer appear all at once even when the model is producing partial output.
+
+Even with a correct transport, some model providers may emit large text deltas rather than many small ones. In that case the backend should progressively relay large deltas in smaller chunks so the user still sees visible answer growth instead of a single final block.

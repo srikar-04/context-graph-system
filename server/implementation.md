@@ -684,6 +684,25 @@
 
 - I still could not run a live end-to-end stream against the current Neon-backed environment from this terminal, so this pass is build-verified and code-verified, but not runtime-verified here in the browser.
 
+## Validator and Streaming Follow-Up Pass - Robust CTE Detection and Progressive Chunk Relay
+
+### What changed in this pass
+
+- Tightened `server/src/services/queryEngine.ts` again so CTE-name detection no longer relies on a brittle "everything before the first SELECT" regex.
+  The validator now detects CTE definitions directly from the full SQL text, which is much more reliable for deterministic `WITH` queries that contain nested `SELECT` statements inside the CTE body.
+- Strengthened `server/src/services/genai.ts` so large streamed model deltas are relayed progressively in smaller chunks instead of being forwarded as one large block.
+  This is a practical fallback for providers that technically support streaming but still emit big content deltas, which makes the UI feel non-streaming.
+- Tightened `server/src/routes/query.routes.ts` further with socket-level no-delay handling for the SSE stream path.
+
+### Verification completed
+
+- `server`: `npm run build`
+- `client`: `npm run build`
+
+### Important operational note
+
+- Your error stack references `server/dist/...`, so the backend process must be rebuilt and restarted for these fixes to take effect in the running app.
+
 ## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
 
 ### Plan improvements applied

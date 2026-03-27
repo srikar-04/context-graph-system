@@ -273,14 +273,13 @@ const extractReferencedTablesFromSql = (sql: string) =>
 
 const extractCteNamesFromSql = (sql: string) => {
   const cteNames = new Set<string>();
-  const withMatch = sql.match(/^\s*with\b([\s\S]+?)\bselect\b/i);
 
-  if (!withMatch?.[1]) {
+  if (!/^\s*with\b/i.test(sql)) {
     return cteNames;
   }
 
-  for (const match of withMatch[1].matchAll(
-    /"([A-Za-z][A-Za-z0-9_]*)"\s+AS\s*\(|\b([A-Za-z][A-Za-z0-9_]*)\b\s+AS\s*\(/gi
+  for (const match of sql.matchAll(
+    /(?:\bwith\b|,)\s*"([A-Za-z][A-Za-z0-9_]*)"\s+AS\s*\(|(?:\bwith\b|,)\s*([A-Za-z][A-Za-z0-9_]*)\s+AS\s*\(/gi
   )) {
     const cteName = match[1] ?? match[2];
 

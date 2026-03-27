@@ -52,6 +52,48 @@ const sleep = (ms: number) =>
     setTimeout(resolve, ms);
   });
 
+const emitChunkProgressively = async (
+  text: string,
+  onChunk: (chunk: string) => void
+) => {
+  if (text.length <= 48) {
+    onChunk(text);
+    return;
+  }
+
+  const segments: string[] = [];
+  let currentSegment = "";
+
+  for (const token of text.split(/(\s+)/)) {
+    if (!token) {
+      continue;
+    }
+
+    if (
+      (currentSegment + token).length > 32 &&
+      currentSegment.trim().length > 0
+    ) {
+      segments.push(currentSegment);
+      currentSegment = token;
+      continue;
+    }
+
+    currentSegment += token;
+  }
+
+  if (currentSegment) {
+    segments.push(currentSegment);
+  }
+
+  for (let index = 0; index < segments.length; index += 1) {
+    onChunk(segments[index] ?? "");
+
+    if (index < segments.length - 1) {
+      await sleep(12);
+    }
+  }
+};
+
 const getErrorStatus = (error: unknown) => {
   if (typeof error !== "object" || error === null) {
     return undefined;
@@ -269,7 +311,7 @@ export const streamTextResponse = async (
         }
 
         content += delta;
-        onChunk(delta);
+        await emitChunkProgressively(delta, onChunk);
       }
 
       break;
