@@ -81,13 +81,15 @@ queryRouter.post(
   chatRateLimiter,
   validateBody(chatRequestSchema),
   async (req, res) => {
-    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
     const writeEvent = (payload: Record<string, unknown>) => {
-      res.write(`${JSON.stringify(payload)}\n`);
+      res.write(`data: ${JSON.stringify(payload)}\n\n`);
+      (res as typeof res & { flush?: () => void }).flush?.();
     };
 
     try {

@@ -97,8 +97,8 @@ export const streamChatMessage = async (
   let buffer = "";
   let donePayload: ChatResponse | null = null;
 
-  const processLine = (line: string) => {
-    const event = JSON.parse(line) as
+  const processEvent = (payloadText: string) => {
+    const event = JSON.parse(payloadText) as
       | ({ type: "meta" } & ChatStreamMeta)
       | ({ type: "chunk"; content: string })
       | ({ type: "done" } & ChatResponse)
@@ -135,17 +135,24 @@ export const streamChatMessage = async (
     const { value, done } = await reader.read();
     buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
 
-    let newlineIndex = buffer.indexOf("\n");
+    let separatorIndex = buffer.indexOf("\n\n");
 
-    while (newlineIndex >= 0) {
-      const line = buffer.slice(0, newlineIndex).trim();
-      buffer = buffer.slice(newlineIndex + 1);
+    while (separatorIndex >= 0) {
+      const rawEvent = buffer.slice(0, separatorIndex).trim();
+      buffer = buffer.slice(separatorIndex + 2);
 
-      if (line) {
-        processLine(line);
+      if (rawEvent) {
+        const dataLine = rawEvent
+          .split("\n")
+          .map((line) => line.trim())
+          .find((line) => line.startsWith("data:"));
+
+        if (dataLine) {
+          processEvent(dataLine.slice(5).trim());
+        }
       }
 
-      newlineIndex = buffer.indexOf("\n");
+      separatorIndex = buffer.indexOf("\n\n");
     }
 
     if (done) {
@@ -156,7 +163,14 @@ export const streamChatMessage = async (
   const finalLine = buffer.trim();
 
   if (finalLine) {
-    processLine(finalLine);
+    const dataLine = finalLine
+      .split("\n")
+      .map((line) => line.trim())
+      .find((line) => line.startsWith("data:"));
+
+    if (dataLine) {
+      processEvent(dataLine.slice(5).trim());
+    }
   }
 
   if (!donePayload) {

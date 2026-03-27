@@ -271,6 +271,27 @@ const extractReferencedTablesFromSql = (sql: string) =>
       (tableName, index, tableNames) => tableNames.indexOf(tableName) === index
     );
 
+const extractCteNamesFromSql = (sql: string) => {
+  const cteNames = new Set<string>();
+  const withMatch = sql.match(/^\s*with\b([\s\S]+?)\bselect\b/i);
+
+  if (!withMatch?.[1]) {
+    return cteNames;
+  }
+
+  for (const match of withMatch[1].matchAll(
+    /"([A-Za-z][A-Za-z0-9_]*)"\s+AS\s*\(|\b([A-Za-z][A-Za-z0-9_]*)\b\s+AS\s*\(/gi
+  )) {
+    const cteName = match[1] ?? match[2];
+
+    if (cteName) {
+      cteNames.add(cteName);
+    }
+  }
+
+  return cteNames;
+};
+
 const extractSalesOrderItemReference = (message: string) => {
   if (!/(sales order item|sales order|order item)/i.test(message)) {
     return null;
@@ -954,6 +975,7 @@ const validateSql = async (sql: string) => {
   const referencedTables = Array.from(
     trimmed.matchAll(/\b(?:from|join)\s+"?([A-Za-z][A-Za-z0-9_]*)"?/gi)
   ).map((match) => match[1]);
+  const cteNames = extractCteNamesFromSql(trimmed);
 
   if (referencedTables.length === 0) {
     throw new ApiError(
@@ -966,6 +988,7 @@ const validateSql = async (sql: string) => {
   const invalidTables = referencedTables.filter(
     (table) =>
       table &&
+      !cteNames.has(table) &&
       !ALLOWED_TABLES.includes(table as (typeof ALLOWED_TABLES)[number])
   );
 

@@ -1052,3 +1052,11 @@ The follow-up answer to that clarification must not be treated as a brand-new st
 ### Identifier-Scoped Highlighting For Broad Summary Answers
 
 For broad summary or exception-analysis queries, graph highlighting should index only identifier-like fields from result rows and node metadata. It should not match every scalar value in the payload, because status flags, counts, or shared customer ids can cause visually noisy highlights that do not reflect the true focus of the answer.
+
+### CTE-Aware SQL Validation For Deterministic Queries
+
+Deterministic query templates may legitimately use `WITH` common table expressions. The SQL validator must therefore distinguish CTE names from real database tables when checking the allowlist. Otherwise safe deterministic SQL can be rejected incorrectly as referencing unknown tables.
+
+### Streaming Transport Should Use Event Framing That Survives Buffering
+
+If the chat route is intended to stream partial answer text to the browser, the transport should use explicit event framing and immediate flush behavior instead of relying on ad-hoc newline-delimited writes. Otherwise browsers, proxies, or middleware can buffer chunk writes and make the answer appear all at once even when the model is producing partial output.

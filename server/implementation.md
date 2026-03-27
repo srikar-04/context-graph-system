@@ -660,6 +660,30 @@
 
 - I could not run the exact live Neon-backed query from this terminal in this pass, so the fix is build-verified and code-verified, but not runtime-verified here against the current database contents.
 
+## Deterministic SQL Edge-Case Pass - CTE Validation and Real Stream Framing
+
+### Plan improvements applied
+
+- Updated `plan.md` so deterministic SQL validation now explicitly accounts for `WITH` common table expressions.
+- Updated `plan.md` so the streaming transport is now documented as an event-framed stream that should flush incrementally instead of relying on plain newline-delimited writes.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` so the SQL validator now extracts CTE names from `WITH` queries and excludes those names from the allowlist check.
+  This fixes the repeated failure mode where deterministic planner SQL was valid but still rejected as referencing tables outside the allowed schema because names like `ProductDeliveryRelations` or `RelationCount` were being treated as physical tables.
+- Updated `server/src/routes/query.routes.ts` so `/api/query/chat/stream` now uses `text/event-stream` with event-style `data: ...` framing, anti-buffering headers, and an explicit flush after each event write when available.
+- Updated `client/src/api/client.ts` so the frontend stream parser now reads server-sent-event style messages instead of the older newline-delimited payload format.
+  This should improve the user-visible streaming behavior where SQL metadata arrived first but the assistant text appeared only at the end in one block.
+
+### Verification completed
+
+- `server`: `npm run build`
+- `client`: `npm run build`
+
+### Remaining limitation
+
+- I still could not run a live end-to-end stream against the current Neon-backed environment from this terminal, so this pass is build-verified and code-verified, but not runtime-verified here in the browser.
+
 ## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
 
 ### Plan improvements applied
