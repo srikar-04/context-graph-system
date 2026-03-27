@@ -703,6 +703,30 @@
 
 - Your error stack references `server/dist/...`, so the backend process must be rebuilt and restarted for these fixes to take effect in the running app.
 
+## Highlight Recovery Pass - Summary-Query Fallbacks and Stronger Visual Emphasis
+
+### Plan improvements applied
+
+- Updated `plan.md` so successful summary queries are now explicitly allowed to use representative graph highlights when the result rows do not expose detailed identifiers.
+
+### What changed in this pass
+
+- Reworked `server/src/services/queryEngine.ts` so SQL-table-to-node-type mapping now better reflects the actual entity surfaces the user sees in the graph.
+  Item tables such as `SalesOrderItem`, `OutboundDeliveryItem`, and `BillingDocumentItem` now also contribute their corresponding higher-level node families where appropriate.
+- Added a primary-summary fallback in `server/src/services/queryEngine.ts`.
+  If a successful `primary_only` query returns a high-level count or threshold-based summary without enough identifiers to resolve concrete nodes, the backend now returns a small representative set of relevant node ids instead of an empty highlight payload.
+- Strengthened `client/src/components/GraphPanel.tsx` so highlighted nodes are more visually obvious once they arrive.
+  Highlighted nodes now render with a larger radius and a stronger halo, which makes non-zero highlight payloads much easier to spot in the dense graph.
+
+### Verification completed
+
+- `server`: `npm run build`
+- `client`: `npm run build`
+
+### Remaining limitation
+
+- I still cannot visually click-test the running browser session from this terminal, so this pass is build-verified and code-verified rather than live-browser-verified here.
+
 ## Query Reliability Pass - Hard-Case Planning, Item Normalization, and Scoped Highlighting
 
 ### Plan improvements applied

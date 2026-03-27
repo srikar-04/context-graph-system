@@ -157,16 +157,31 @@ const TABLE_TO_NODE_TYPES: Partial<
   ProductPlant: ["Product", "Plant"],
   ProductStorageLocation: ["Product", "Plant"],
   SalesOrderHeader: ["SalesOrder"],
-  SalesOrderItem: ["SalesOrderItem"],
+  SalesOrderItem: ["SalesOrderItem", "SalesOrder", "Product"],
   SalesOrderScheduleLine: ["ScheduleLine"],
   OutboundDeliveryHeader: ["OutboundDelivery"],
-  OutboundDeliveryItem: ["OutboundDeliveryItem"],
+  OutboundDeliveryItem: ["OutboundDeliveryItem", "OutboundDelivery"],
   BillingDocumentHeader: ["BillingDocument"],
   BillingDocumentCancellation: ["BillingDocument"],
-  BillingDocumentItem: ["BillingDocumentItem"],
+  BillingDocumentItem: ["BillingDocumentItem", "BillingDocument"],
   JournalEntryAccountsReceivable: ["JournalEntry"],
   PaymentAccountsReceivable: ["Payment"],
 };
+
+const SUMMARY_NODE_TYPE_PRIORITY: GraphNodeType[] = [
+  "BusinessPartner",
+  "Product",
+  "SalesOrder",
+  "OutboundDelivery",
+  "BillingDocument",
+  "JournalEntry",
+  "Payment",
+  "Plant",
+  "SalesOrderItem",
+  "ScheduleLine",
+  "OutboundDeliveryItem",
+  "BillingDocumentItem",
+];
 
 const sanitizeModelResponse = (text: string) =>
   text
@@ -1208,6 +1223,32 @@ const extractNodeReferences = async (input: {
       }
 
       if (nodeReferences.size >= 24) {
+        break;
+      }
+    }
+  }
+
+  if (nodeReferences.size === 0 && input.highlightMode === "primary_only") {
+    const prioritizedTypes = SUMMARY_NODE_TYPE_PRIORITY.filter((type) =>
+      focusTypes.has(type)
+    );
+    const fallbackTypes =
+      prioritizedTypes.length > 0 ? prioritizedTypes : Array.from(focusTypes);
+
+    for (const type of fallbackTypes) {
+      const typedNodes = graph.nodes
+        .filter((node) => node.type === type)
+        .slice(0, type === "Product" || type === "OutboundDelivery" ? 6 : 4);
+
+      for (const node of typedNodes) {
+        nodeReferences.add(node.id);
+
+        if (nodeReferences.size >= 12) {
+          break;
+        }
+      }
+
+      if (nodeReferences.size >= 12) {
         break;
       }
     }

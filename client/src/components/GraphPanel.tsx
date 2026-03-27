@@ -398,14 +398,14 @@ export const GraphPanel = ({
               const isSelected = selectedNodeId === graphNode.id;
               const isHovered = hoveredNodeId === graphNode.id;
               const shouldShowLabel = isSelected || isHovered;
-              const nodeRadius = isSelected ? 4.8 : isHighlighted ? 3.8 : 2.3;
+              const nodeRadius = isSelected ? 5.2 : isHighlighted ? 4.4 : 2.3;
 
               if (isHighlighted || isSelected) {
                 context.beginPath();
-                context.arc(x, y, nodeRadius + 2.8, 0, 2 * Math.PI, false);
+                context.arc(x, y, nodeRadius + 4.2, 0, 2 * Math.PI, false);
                 context.fillStyle = isSelected
-                  ? "rgba(17, 24, 39, 0.12)"
-                  : "rgba(85, 130, 255, 0.14)";
+                  ? "rgba(17, 24, 39, 0.16)"
+                  : "rgba(85, 130, 255, 0.22)";
                 context.fill();
               }
 

@@ -1053,6 +1053,8 @@ The follow-up answer to that clarification must not be treated as a brand-new st
 
 For broad summary or exception-analysis queries, graph highlighting should index only identifier-like fields from result rows and node metadata. It should not match every scalar value in the payload, because status flags, counts, or shared customer ids can cause visually noisy highlights that do not reflect the true focus of the answer.
 
+Some successful summary queries intentionally return counts or high-level verdicts without exposing all detailed identifiers in the result rows. In those cases the graph should still highlight a small representative set of relevant entity types instead of returning an empty highlight payload.
+
 ### CTE-Aware SQL Validation For Deterministic Queries
 
 Deterministic query templates may legitimately use `WITH` common table expressions. The SQL validator must therefore distinguish CTE names from real database tables when checking the allowlist. Otherwise safe deterministic SQL can be rejected incorrectly as referencing unknown tables.
